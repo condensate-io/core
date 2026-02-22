@@ -121,6 +121,11 @@ jobs:
       - name: Publish @condensate/sdk
         if: steps.check_ts.outputs.exists != 'true'
         run: |
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "Error: NPM_TOKEN secret is not set! Please add it to GitHub Settings > Secrets."
+            exit 1
+          fi
+
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           cd sdks/ts
           npm ci
@@ -143,6 +148,11 @@ jobs:
       - name: Publish @condensate/core (MCP)
         if: steps.check_mcp.outputs.exists != 'true'
         run: |
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "Error: NPM_TOKEN secret is not set! Please add it to GitHub Settings > Secrets."
+            exit 1
+          fi
+
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           cd sdks/mcp-bridge
           npm ci
