@@ -64,14 +64,21 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Publish to crates.io
+      - name: Check if Rust crate exists
+        id: check_rust
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           if curl -s "https://crates.io/api/v1/crates/condensate" | jq -e ".versions[]? | select(.num == \"$VERSION\")" > /dev/null; then
-            echo "Version $VERSION already exists on crates.io, skipping..."
-            exit 0
+            echo "Version $VERSION already exists on crates.io."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Publish to crates.io
+        if: steps.check_rust.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
           cd sdks/rust
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
           for i in {1..3}; do
@@ -93,14 +100,21 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Publish @condensate/sdk
+      - name: Check if @condensate/sdk exists
+        id: check_ts
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           if npm show @condensate/sdk@$VERSION version >/dev/null 2>&1; then
-            echo "Version $VERSION already exists on npm, skipping..."
-            exit 0
+            echo "Version $VERSION already exists on npm."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Publish @condensate/sdk
+        if: steps.check_ts.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
           cd sdks/ts
           npm ci
           npm version $VERSION --no-git-tag-version
@@ -108,14 +122,21 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @condensate/core (MCP)
+      - name: Check if @condensate/core exists
+        id: check_mcp
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           if npm show @condensate/core@$VERSION version >/dev/null 2>&1; then
-            echo "Version $VERSION already exists on npm, skipping..."
-            exit 0
+            echo "Version $VERSION already exists on npm."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Publish @condensate/core (MCP)
+        if: steps.check_mcp.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
           cd sdks/mcp-bridge
           npm ci
           npm version $VERSION --no-git-tag-version
@@ -132,14 +153,21 @@ jobs:
       - name: Install hatch
         run: pip install hatch
 
-      - name: Publish to PyPI
+      - name: Check if PyPI package exists
+        id: check_py
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           if curl -s "https://pypi.org/pypi/condensate/json" | jq -e ".releases | has(\"$VERSION\")" > /dev/null 2>&1; then
-            echo "Version $VERSION already exists on PyPI, skipping..."
-            exit 0
+            echo "Version $VERSION already exists on PyPI."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Publish to PyPI
+        if: steps.check_py.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
           cd sdks/python
           hatch version $VERSION
           hatch publish -u __token__ -a ${{ secrets.PYPI_API_TOKEN }}
