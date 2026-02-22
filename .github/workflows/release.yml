@@ -60,46 +60,6 @@ jobs:
         with:
           path: binaries
 
-      # --- Rust Release ---
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Check if Rust crate exists
-        id: check_rust
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          if curl -s "https://crates.io/api/v1/crates/condensate" | jq -e ".versions[]? | select(.num == \"$VERSION\")" > /dev/null; then
-            echo "Version $VERSION already exists on crates.io."
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Publish to crates.io
-        if: steps.check_rust.outputs.exists != 'true'
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          cd sdks/rust
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-          for i in {1..3}; do
-            OUTPUT=$(cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} 2>&1) || EXIT_CODE=$? && EXIT_CODE=0
-            echo "$OUTPUT"
-            if [ $EXIT_CODE -eq 0 ]; then
-              break
-            elif echo "$OUTPUT" | grep -q "is already uploaded"; then
-              echo "Crate version is already uploaded. Skipping retry."
-              break
-            else
-              if [ $i -lt 3 ]; then
-                echo "Publish failed, retrying in $((i * 10)) seconds..."
-                sleep $((i * 10))
-              else
-                echo "Publish failed after 3 attempts."
-                exit 1
-              fi
-            fi
-          done
-
       # --- Node/npm Release ---
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -160,6 +120,48 @@ jobs:
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # --- Rust Release ---
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check if Rust crate exists
+        id: check_rust
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if curl -s "https://crates.io/api/v1/crates/condensate" | jq -e ".versions[]? | select(.num == \"$VERSION\")" > /dev/null; then
+            echo "Version $VERSION already exists on crates.io."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish to crates.io
+        if: steps.check_rust.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          cd sdks/rust
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          for i in {1..3}; do
+            OUTPUT=$(cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} 2>&1) || EXIT_CODE=$? && EXIT_CODE=0
+            echo "$OUTPUT"
+            if [ $EXIT_CODE -eq 0 ]; then
+              break
+            elif echo "$OUTPUT" | grep -q "is already uploaded"; then
+              echo "Crate version is already uploaded. Skipping retry."
+              break
+            else
+              if [ $i -lt 3 ]; then
+                echo "Publish failed, retrying in $((i * 10)) seconds..."
+                sleep $((i * 10))
+              else
+                echo "Publish failed after 3 attempts."
+                exit 1
+              fi
+            fi
+          done
+
+
 
       # --- Python Release ---
       - name: Set up Python
