@@ -1,0 +1,48 @@
+# Version Control
+.git
+.gitignore
+
+# Environment & Config
+.env
+.env.example
+docker-compose.yml
+.dockerignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.mypy_cache/
+.pytest_cache/
+
+# Large Directories / Non-Backend Code
+frontend/
+project_website/
+sdks/
+reference-architecture/
+rfcs/
+scratch/
+docs/
+
+# Node
+node_modules/
+package-lock.json
+package.json
+
+# Text
+*.md
+LICENSE

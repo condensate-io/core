@@ -1,0 +1,21 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+qdrant-client
+pydantic
+pydantic-settings
+python-dotenv
+openai
+httpx
+jinja2
+python-multipart
+pytest
+pytest-asyncio
+fastembed
+apscheduler
+beautifulsoup4
+transformers
+torch --extra-index-url https://download.pytorch.org/whl/cpu
+tenacity
+gliner

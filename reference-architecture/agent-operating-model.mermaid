@@ -1,0 +1,34 @@
+graph TD
+    User[User / Developer] -->|Interacts| Agent[Agent (Client)]
+    
+    subgraph "Agent Memory System (Condensate)"
+        MCP[MCP Server]
+        
+        subgraph "Ingress & Processing"
+            Ingress[Ingress Pipeline]
+            Condenser[Condenser Engine]
+            PolicyEngine[Policy Engine]
+        end
+        
+        subgraph "Storage"
+            Episodic[(Episodic DB)]
+            Semantic[(Semantic DB)]
+            Vector[(Vector DB)]
+        end
+    end
+    
+    %% Flows
+    Agent -->|1. Query Context| MCP
+    MCP -->|2. Route Query| PolicyEngine
+    
+    PolicyEngine -->|3. Get Policy/Facts| Semantic
+    PolicyEngine -->|4. Get Relevant History| Vector
+    
+    MCP -->|5. Return MemoryPack| Agent
+    
+    Agent -->|6. Send New Events| Ingress
+    Ingress -->|7. Store Raw| Episodic
+    
+    Episodic -->|8. Async Distillation| Condenser
+    Condenser -->|9. Update Ontology| Semantic
+    Condenser -->|10. Embed Chunks| Vector

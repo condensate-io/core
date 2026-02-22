@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "condensate"
+version = "0.1.0"
+description = "Official Python Client for Condensate Memory System"
+readme = "README.md"
+authors = [
+  { name = "Condensate Project", email = "hello@condensate.io" },
+]
+license = { file = "LICENSE" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://condensate.io"
+"Bug Tracker" = "https://github.com/condensate-io/core/issues"
+
+[project.scripts]
+condensate = "condensate.cli:main"

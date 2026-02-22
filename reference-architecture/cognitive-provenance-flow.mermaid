@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant Source as Event Source (PR/Chat)
+    participant Ingress as Ingress Pipeline
+    participant Episodic as Episodic Store (Event)
+    participant Kernel as Condenser Kernel
+    participant LLM as Inference Model
+    participant Semantic as Semantic Store (Learning)
+    
+    Source->>Ingress: 1. Raw Event Data
+    Ingress->>Ingress: 2. Validate & Hash Content
+    Ingress->>Episodic: 3. Store Immutable Event (ID: E1)
+    
+    loop Async Condensation
+        Kernel->>Episodic: 4. Fetch Recent Events
+        Kernel->>LLM: 5. Distill(Events, Schema)
+        LLM->>Kernel: 6. JSON Output (Statement S1)
+        Kernel->>Kernel: 7. Verify JSON Schema & Map Entities
+        Kernel->>Kernel: 8. Edge Synthesis (Pairwise Co-occurrence)
+        Kernel->>Kernel: 9. Create Proof Envelope
+        Note right of Kernel: Link S1 to E1 (Evidence)
+        Kernel->>Semantic: 10. Store Learning L1 & Relations
+    end
+    
+    Note over Semantic, Episodic: Provenance Chain: L1 -> E1

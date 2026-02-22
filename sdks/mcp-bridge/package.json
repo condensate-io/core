@@ -1,0 +1,20 @@
+{
+    "name": "@condensate/core",
+    "version": "0.1.0",
+    "description": "MCP Bridge for Condensate Memory System",
+    "bin": {
+        "condensate-mcp": "./index.js"
+    },
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "latest",
+        "axios": "^1.6.0"
+    },
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/condensate-io/core.git"
+    }
+}

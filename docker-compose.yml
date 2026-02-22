@@ -1,0 +1,97 @@
+services:
+  condensate-db:
+    image: postgres:15
+    container_name: condensate-db
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: condensate
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - condensate_net
+
+  condensate-vector:
+    image: qdrant/qdrant:latest
+    container_name: condensate-vector
+    restart: always
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    networks:
+      - condensate_net
+
+  condensate-ollama:
+    image: ollama/ollama:latest
+    container_name: condensate-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - condensate_net
+
+  condensate-core:
+    build: .
+    container_name: condensate-core
+    volumes:
+      - .:/app
+      - /app/frontend # Don't overwrite frontend dir with host mount if building inside
+    environment:
+      - DATABASE_URL=postgresql://user:password@condensate-db:5432/condensate
+      - QDRANT_HOST=condensate-vector
+      - QDRANT_PORT=6333
+      - LLM_BASE_URL=http://condensate-ollama:11434/v1
+      - LLM_MODEL=phi3
+      - LLM_API_KEY=ollama
+      - LLM_ENABLED=true
+      - REVIEW_MODE=auto
+      - PYTHONPATH=/app
+    depends_on:
+      - condensate-db
+      - condensate-vector
+      - condensate-ollama
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    networks:
+      - condensate_net
+
+  condensate-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: condensate-frontend
+    ports:
+      - "3010:80"
+    volumes:
+      - ./frontend/src:/app/src
+    depends_on:
+      - condensate-core
+    networks:
+      - condensate_net
+
+  condensate-website:
+    image: nginx:alpine
+    container_name: condensate-website
+    volumes:
+      - ./project_website:/usr/share/nginx/html
+    ports:
+      - "8080:80"
+    networks:
+      - condensate_net
+
+volumes:
+  pgdata:
+  qdrant_storage:
+  ollama_data:
+
+
+networks:
+  condensate_net:
+    driver: bridge
