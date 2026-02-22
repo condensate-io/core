@@ -82,7 +82,14 @@ jobs:
           cd sdks/rust
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
           for i in {1..3}; do
-            cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} && break || {
+            OUTPUT=$(cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} 2>&1) || EXIT_CODE=$? && EXIT_CODE=0
+            echo "$OUTPUT"
+            if [ $EXIT_CODE -eq 0 ]; then
+              break
+            elif echo "$OUTPUT" | grep -q "is already uploaded"; then
+              echo "Crate version is already uploaded. Skipping retry."
+              break
+            else
               if [ $i -lt 3 ]; then
                 echo "Publish failed, retrying in $((i * 10)) seconds..."
                 sleep $((i * 10))
@@ -90,7 +97,7 @@ jobs:
                 echo "Publish failed after 3 attempts."
                 exit 1
               fi
-            }
+            fi
           done
 
       # --- Node/npm Release ---
