@@ -1,5 +1,5 @@
 {
-    "name": "@condensate/sdk",
+    "name": "@condensate-io/sdk",
     "version": "0.1.0",
     "description": "Official TypeScript SDK for the Condensate Memory System",
     "main": "dist/index.js",

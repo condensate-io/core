@@ -1,5 +1,5 @@
 {
-    "name": "@condensate/core",
+    "name": "@condensate-io/core",
     "version": "0.1.0",
     "description": "MCP Bridge for Condensate Memory System",
     "bin": {

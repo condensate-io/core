@@ -67,18 +67,18 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Check if @condensate/sdk exists
+      - name: Check if @condensate-io/sdk exists
         id: check_ts
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
-          if npm show @condensate/sdk@$VERSION version >/dev/null 2>&1; then
+          if npm show @condensate-io/sdk@$VERSION version >/dev/null 2>&1; then
             echo "Version $VERSION already exists on npm."
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Publish @condensate/sdk
+      - name: Publish @condensate-io/sdk
         if: steps.check_ts.outputs.exists != 'true'
         run: |
           if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
@@ -94,18 +94,18 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Check if @condensate/core exists
+      - name: Check if @condensate-io/core exists
         id: check_mcp
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
-          if npm show @condensate/core@$VERSION version >/dev/null 2>&1; then
+          if npm show @condensate-io/core@$VERSION version >/dev/null 2>&1; then
             echo "Version $VERSION already exists on npm."
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Publish @condensate/core (MCP)
+      - name: Publish @condensate-io/core (MCP)
         if: steps.check_mcp.outputs.exists != 'true'
         run: |
           if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
