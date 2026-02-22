@@ -66,8 +66,14 @@ jobs:
 
       - name: Publish to crates.io
         run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if curl -s "https://crates.io/api/v1/crates/condensate" | jq -e ".versions[]? | select(.num == \"$VERSION\")" > /dev/null; then
+            echo "Version $VERSION already exists on crates.io, skipping..."
+            exit 0
+          fi
+
           cd sdks/rust
-          sed -i "s/^version = \".*\"/version = \"${{ steps.get_version.outputs.VERSION }}\"/" Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
           for i in {1..3}; do
             cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} && break || {
               if [ $i -lt 3 ]; then
@@ -89,16 +95,30 @@ jobs:
 
       - name: Publish @condensate/sdk
         run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if npm show @condensate/sdk@$VERSION version >/dev/null 2>&1; then
+            echo "Version $VERSION already exists on npm, skipping..."
+            exit 0
+          fi
+
           cd sdks/ts
-          npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+          npm ci
+          npm version $VERSION --no-git-tag-version
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @condensate/core (MCP)
         run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if npm show @condensate/core@$VERSION version >/dev/null 2>&1; then
+            echo "Version $VERSION already exists on npm, skipping..."
+            exit 0
+          fi
+
           cd sdks/mcp-bridge
-          npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+          npm ci
+          npm version $VERSION --no-git-tag-version
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -114,8 +134,14 @@ jobs:
 
       - name: Publish to PyPI
         run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if curl -s "https://pypi.org/pypi/condensate/json" | jq -e ".releases | has(\"$VERSION\")" > /dev/null 2>&1; then
+            echo "Version $VERSION already exists on PyPI, skipping..."
+            exit 0
+          fi
+
           cd sdks/python
-          hatch version ${{ steps.get_version.outputs.VERSION }}
+          hatch version $VERSION
           hatch publish -u __token__ -a ${{ secrets.PYPI_API_TOKEN }}
 
       # --- GitHub Release ---
