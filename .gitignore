@@ -31,5 +31,22 @@ docker-data/
 # Project Specific
 data/
 qdrant_storage/
-test_db.sqlite
+uploads/
+localmemcp_data/
+*.sqlite
+*.sqlite3
 *.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+target/
+.turbo/
+.next/
+.output/
+.cache/
+*.egg-info/
+.env.*
