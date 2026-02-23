@@ -50,3 +50,4 @@ target/
 .cache/
 *.egg-info/
 .env.*
+project_website/*

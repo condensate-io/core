@@ -49,26 +49,35 @@ class MemoryRouter:
 
         context = ""
         sources = []
+        confidence_score = 0.0
 
         if strategy == "recall":
-            context, sources = await self._vector_search(project_id, query)
+            context, sources, max_score = await self._vector_search(project_id, query)
+            confidence_score = max_score
         
         elif strategy == "research":
             # Graph + Vector
-            graph_context, graph_sources = self._graph_traversal(project_id, keywords)
-            vec_context, vec_sources = await self._vector_search(project_id, query)
+            graph_context, graph_sources, graph_conf = self._graph_traversal(project_id, keywords)
+            vec_context, vec_sources, vec_conf = await self._vector_search(project_id, query)
             
             context = f"GRAPH KNOWLEDGE:\n{graph_context}\n\nVECTOR MEMORY:\n{vec_context}"
             sources = graph_sources + vec_sources
+            confidence_score = max(graph_conf, vec_conf)
             
         elif strategy == "meta":
             # Just simple stats for now
             context = "System functionality query."
             sources = []
+            confidence_score = 1.0
+
+        THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.8"))
 
         # 2. Synthesize Answer (Brief)
-        if skip_llm:
-            answer = f"**TRAFFIC CONTROL: LLM SKIPPED**\n\nStrategy: {strategy}\n\nContext Retrieved:\n{context}"
+        if skip_llm or confidence_score >= THRESHOLD:
+            if not skip_llm:
+                answer = f"**TRAFFIC CONTROL: LLM SKIPPED (Confidence: {confidence_score:.2f} >= {THRESHOLD})**\n\nStrategy: {strategy}\n\nContext Retrieved:\n{context}"
+            else:
+                answer = f"**TRAFFIC CONTROL: LLM SKIPPED**\n\nStrategy: {strategy}\n\nContext Retrieved:\n{context}"
         else:
             answer = await self._synthesize(query, context, llm_config)
 
@@ -127,17 +136,17 @@ class MemoryRouter:
         for the top-10 nearest episodic items in this project.
         """
         if self.qdrant is None:
-            return "Vector search unavailable (no Qdrant client).", []
+            return "Vector search unavailable (no Qdrant client).", [], 0.0
 
         try:
             from fastembed import TextEmbedding
             embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
             query_vectors = list(embedding_model.embed([query]))
             if not query_vectors:
-                return "Could not embed query.", []
+                return "Could not embed query.", [], 0.0
             query_vector = query_vectors[0].tolist()
         except Exception as e:
-            return f"Embedding error: {e}", []
+            return f"Embedding error: {e}", [], 0.0
 
         try:
             from qdrant_client.models import Filter, FieldCondition, MatchValue
@@ -153,22 +162,24 @@ class MemoryRouter:
             )
         except Exception as e:
             # Collection may not exist yet or Qdrant unavailable
-            return f"Qdrant search error: {e}", []
+            return f"Qdrant search error: {e}", [], 0.0
 
         if not results:
-            return "No relevant memories found.", []
+            return "No relevant memories found.", [], 0.0
 
         context_parts = []
         source_ids = []
+        max_score = 0.0
         for hit in results:
             payload = hit.payload or {}
             text = payload.get("text", "")
             item_id = payload.get("item_id", str(hit.id))
             score = round(hit.score, 3)
+            max_score = max(max_score, score)
             context_parts.append(f"[score={score}] {text}")
             source_ids.append(item_id)
 
-        return "\n\n".join(context_parts), source_ids
+        return "\n\n".join(context_parts), source_ids, max_score
 
 
     def _graph_traversal(self, project_id: str, keywords: List[str]):
@@ -176,7 +187,7 @@ class MemoryRouter:
         Research Strategy: Find entities -> Spreading Activation -> Get Assertions
         """
         if not keywords:
-            return "", []
+            return "", [], 0.0
 
         # 1. Find Seed Entities
         entities = self.db.execute(
@@ -187,7 +198,7 @@ class MemoryRouter:
         ).scalars().all()
         
         if not entities:
-            return "No matching entities found in graph.", []
+            return "No matching entities found in graph.", [], 0.0
 
         seed_ids = [e.id for e in entities]
         
@@ -209,7 +220,9 @@ class MemoryRouter:
         context = "\n".join([f"- {a.subject_text} {a.predicate} {a.object_text} (conf: {a.confidence}, str: {a.strength})" for a in assertions])
         sources = [str(a.id) for a in assertions]
         
-        return context, sources
+        max_conf = max([a.confidence for a in assertions]) if assertions else 0.0
+        
+        return context, sources, max_conf
 
     async def _synthesize(self, query: str, context: str, llm_config: Optional[Dict[str, str]] = None) -> str:
         use_client = client
