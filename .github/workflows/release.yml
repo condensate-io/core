@@ -188,7 +188,8 @@ jobs:
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           cd sdks/python
-          hatch version $VERSION
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          hatch build
           hatch publish -u __token__ -a ${{ secrets.PYPI_API_TOKEN }}
 
       # --- GitHub Release ---
