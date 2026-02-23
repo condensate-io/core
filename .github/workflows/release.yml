@@ -37,11 +37,15 @@ jobs:
         run: |
           cd sdks/rust
           cargo build --release --target ${{ matrix.target }}
-      - name: Rename & Upload
+      - name: Rename binary
+        run: |
+          cd sdks/rust/target/${{ matrix.target }}/release/
+          mv condensate${{ matrix.os == 'windows-latest' && '.exe' || '' }} ${{ matrix.artifact_name }}
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: sdks/rust/target/${{ matrix.target }}/release/condensate${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          path: sdks/rust/target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
   publish:
     name: Publish Packages
