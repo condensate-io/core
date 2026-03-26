@@ -3,7 +3,18 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, Text, SmallInteger, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.types import TypeDecorator, JSON
+from sqlalchemy.dialects.postgresql import UUID, JSONB as PGL_JSONB
+
+# For SQLite compatibility in tests
+class JSONB(TypeDecorator):
+    impl = JSON
+    cache_ok = True
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(PGL_JSONB())
+        else:
+            return dialect.type_descriptor(JSON())
 
 class Base(DeclarativeBase):
     pass

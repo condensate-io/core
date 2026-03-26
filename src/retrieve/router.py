@@ -8,11 +8,17 @@ from sqlalchemy import select, text
 from src.db.models import Assertion, Entity
 
 # Constants
-MODEL_NAME = os.getenv("LLM_MODEL", "gpt-4-turbo")
-BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-API_KEY = os.getenv("LLM_API_KEY", "sk-placeholder")
+from src.llm.client import LLMClient
 
-client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
+def get_current_client(config: Optional[Dict[str, str]] = None):
+    """Dynamically resolves the LLM settings from the config file if not provided explicitly."""
+    if not config:
+        config = LLMClient.get_active_config()
+    
+    return AsyncOpenAI(
+        api_key=config.get("apiKey", config.get("api_key", "sk-placeholder")),
+        base_url=config.get("baseUrl", config.get("base_url", "https://api.openai.com/v1"))
+    ), config.get("model", "gpt-4-turbo")
 
 ROUTER_PROMPT = """
 You are a Memory Router. Your job is to classify the user's query and decide the best retrieval strategy.
@@ -36,7 +42,7 @@ class MemoryRouter:
         self.db = db
         self.qdrant = qdrant
 
-    async def route_and_retrieve(self, project_id: str, query: str, skip_llm: bool = False, llm_config: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    async def route_and_retrieve(self, project_id: Any, query: str, skip_llm: bool = False, llm_config: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Main entry point: Classification -> Retrieval -> Synthesis
         """
@@ -108,18 +114,10 @@ class MemoryRouter:
         }
 
     async def _classify(self, query: str, llm_config: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-        use_client = client
-        model = MODEL_NAME
-        
-        if llm_config:
-            from openai import AsyncOpenAI
-            use_client = AsyncOpenAI(
-                api_key=llm_config.get("api_key", API_KEY),
-                base_url=llm_config.get("base_url", BASE_URL)
-            )
-            model = llm_config.get("model", MODEL_NAME)
-
+        """Classify the user intent into recall, research, or meta strategies using the active LLM."""
         try:
+            use_client, model = get_current_client(llm_config)
+            
             response = await use_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": ROUTER_PROMPT.format(query=query)}],
@@ -127,10 +125,12 @@ class MemoryRouter:
                 temperature=0.0
             )
             return json.loads(response.choices[0].message.content)
-        except:
+        except Exception as e:
+            # Fallback to simple recall if LLM fails or is unconfigured
+            print(f"Router classification failed: {e}")
             return {"strategy": "recall", "keywords": []}
 
-    async def _vector_search(self, project_id: str, query: str):
+    async def _vector_search(self, project_id: Any, query: str):
         """
         Real vector search: embed the query with fastembed, then search Qdrant
         for the top-10 nearest episodic items in this project.
@@ -149,10 +149,15 @@ class MemoryRouter:
             return f"Embedding error: {e}", [], 0.0
 
         try:
-            from qdrant_client.models import Filter, FieldCondition, MatchValue
-            search_filter = Filter(
-                must=[FieldCondition(key="project_id", match=MatchValue(value=project_id))]
-            )
+            from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
+            if isinstance(project_id, list):
+                search_filter = Filter(
+                    must=[FieldCondition(key="project_id", match=MatchAny(any=project_id))]
+                )
+            else:
+                search_filter = Filter(
+                    must=[FieldCondition(key="project_id", match=MatchValue(value=project_id))]
+                )
             results = self.qdrant.search(
                 collection_name="episodic_chunks",
                 query_vector=query_vector,
@@ -182,7 +187,7 @@ class MemoryRouter:
         return "\n\n".join(context_parts), source_ids, max_score
 
 
-    def _graph_traversal(self, project_id: str, keywords: List[str]):
+    def _graph_traversal(self, project_id: Any, keywords: List[str]):
         """
         Research Strategy: Find entities -> Spreading Activation -> Get Assertions
         """
@@ -190,12 +195,17 @@ class MemoryRouter:
             return "", [], 0.0
 
         # 1. Find Seed Entities
-        entities = self.db.execute(
-            select(Entity).where(
+        if isinstance(project_id, list):
+            ent_stmt = select(Entity).where(
+                Entity.project_id.in_(project_id),
+                Entity.canonical_name.in_([k.lower() for k in keywords]) 
+            )
+        else:
+            ent_stmt = select(Entity).where(
                 Entity.project_id == project_id,
                 Entity.canonical_name.in_([k.lower() for k in keywords]) 
             )
-        ).scalars().all()
+        entities = self.db.execute(ent_stmt).scalars().all()
         
         if not entities:
             return "No matching entities found in graph.", [], 0.0
@@ -208,12 +218,21 @@ class MemoryRouter:
         activated_ids = cog.spreading_activation(seed_ids, steps=2)
         
         # 3. Retrieve Assertions for Activated Entities (only approved/active)
-        assertions = self.db.execute(
-            select(Assertion).where(
+        if isinstance(project_id, list):
+            ass_stmt = select(Assertion).where(
+                Assertion.project_id.in_(project_id),
+                Assertion.status.in_(['approved', 'active']),
+                (Assertion.subject_entity_id.in_(activated_ids)) | (Assertion.object_entity_id.in_(activated_ids))
+            )
+        else:
+            ass_stmt = select(Assertion).where(
                 Assertion.project_id == project_id,
                 Assertion.status.in_(['approved', 'active']),
                 (Assertion.subject_entity_id.in_(activated_ids)) | (Assertion.object_entity_id.in_(activated_ids))
-            ).limit(20) # Cap context
+            )
+            
+        assertions = self.db.execute(
+            ass_stmt.limit(20) # Cap context
             .order_by(Assertion.strength.desc()) # Prioritize strong memories (LTP)
         ).scalars().all()
         
@@ -225,26 +244,21 @@ class MemoryRouter:
         return context, sources, max_conf
 
     async def _synthesize(self, query: str, context: str, llm_config: Optional[Dict[str, str]] = None) -> str:
-        use_client = client
-        model = MODEL_NAME
-        
-        if llm_config:
-            from openai import AsyncOpenAI
-            use_client = AsyncOpenAI(
-                api_key=llm_config.get("api_key", API_KEY),
-                base_url=llm_config.get("base_url", BASE_URL)
-            )
-            model = llm_config.get("model", MODEL_NAME)
+        """Combine context and query into a natural language response using the active LLM."""
+        try:
+            use_client, model = get_current_client(llm_config)
 
-        sys_prompt = "You are a helpful assistant. Answer the user query based ONLY on the provided context."
-        user_msg = f"Context:\n{context}\n\nQuery: {query}"
-        
-        response = await use_client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": user_msg}
-            ],
-            temperature=0.0
-        )
-        return response.choices[0].message.content
+            sys_prompt = "You are a helpful assistant. Answer the user query based ONLY on the provided context."
+            user_msg = f"Context:\n{context}\n\nQuery: {query}"
+            
+            response = await use_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_msg}
+                ],
+                temperature=0.0
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Answer synthesis failed: {e}. Raw context preserved: {context[:500]}..."

@@ -1,5 +1,5 @@
 from typing import List, Optional, Any, Literal
-from pydantic import BaseModel, Field, UUID4, field_validator
+from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 import uuid
 
 # --- Extraction Schemas (LLM Output) ---
@@ -36,7 +36,34 @@ class ExtractedEntity(BaseModel):
     name: str = Field(..., description="Canonical name of the entity")
     type: Literal["person", "org", "system", "project", "tool", "concept", "artifact", "other"]
     aliases: List[str] = Field(default_factory=list, description="Known aliases for this entity")
-    confidence: float = Field(..., ge=0.0, le=1.0)
+    confidence: float = Field(0.8, ge=0.0, le=1.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def robust_parsing(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Recovery for missing 'name' if 'references' or 'value' exists
+            if not data.get("name"):
+                if data.get("references"):
+                    data["name"] = str(data.get("references", [""])[0])
+                elif data.get("aliases"):
+                    data["name"] = str(data.get("aliases", [""])[0])
+                elif data.get("value"):
+                    data["name"] = str(data.get("value"))
+            
+            # Recovery for missing 'type' if 'label' or 'category' or 'kind' exists
+            if not data.get("type"):
+                if data.get("label"):
+                    data["type"] = data.get("label")
+                elif data.get("category"):
+                    data["type"] = data.get("category")
+                elif data.get("kind"):
+                    data["type"] = data.get("kind")
+                    
+            # Default confidence if LLM omits it
+            if "confidence" not in data or data["confidence"] is None:
+                data["confidence"] = 0.8
+        return data
 
     @field_validator("type", mode="before")
     @classmethod

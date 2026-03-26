@@ -23,24 +23,38 @@ Your job is to read a raw episodic memory item and extract structured knowledge 
 Output MUST be a valid JSON object matching the following schema.
 
 Schema Definition:
-- entities: List of canonical entities (People, Organizations, Systems, Concepts) mentioned.
-- assertions: List of factual claims. Subject/Object should be entity references or literals.
-- events: Significant occurrences (meetings, decisions, incidents) if any.
-- policies: Operational rules or constraints to remember (e.g. "Do not use library X").
+- entities: List of objects with:
+    - name: string (Canonical name, e.g. "Polymarket")
+    - type: string (one of: person, org, system, project, tool, concept, artifact, other)
+    - aliases: list of strings (optional, other names found)
+    - confidence: float (0.0 to 1.0)
+- assertions: List of factual claims with:
+    - subject: object ({{ "type": "entity", "name": "name" }} or {{ "type": "literal", "value": "value" }})
+    - predicate: string (the relationship verb)
+    - object: object ({{ "type": "entity", "name": "name" }} or {{ "type": "literal", "value": "value" }})
+    - polarity: integer (1 for affirmative, -1 for negative)
+    - confidence: float (0.0 to 1.0)
+- events: Significant occurrences with:
+    - type: string
+    - summary: string
+    - confidence: float (0.0 to 1.0)
+- policies: Operational rules with:
+    - trigger: string
+    - rule: string
+    - priority: float
+    - scope: string (global, project, task)
+    - confidence: float (0.0 to 1.0)
 
 Rules:
 1. Be conservative. Only extract what is explicitly stated or strongly implied.
 2. Canonicalize names where possible (e.g., "Bob" -> "Bob Smith", "the db" -> "Primary Database").
-3. Polarity: 1 for affirmative ("is"), -1 for negative ("is not").
-4. Confidence: 0.0 to 1.0 based on how clear the text is.
+3. Respond ONLY with the raw JSON. No conversational filler.
 
 Input Text:
 {text}
 
 Input Metadata:
 {metadata}
-
-Respond ONLY with the JSON.
 """
 
 class MemoryExtractor:

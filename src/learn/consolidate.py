@@ -60,8 +60,13 @@ class KnowledgeConsolidator:
                     existing_ev_ids = {e.get("episodic_id") for e in current_prov}
                     
                     for ev in claim.evidence:
-                        if str(ev.episodic_id) not in existing_ev_ids:
-                            current_prov.append(ev.model_dump())
+                        # Ensure episodic_id is saved as string for JSON serialization
+                        ev_dict = ev.model_dump()
+                        if "episodic_id" in ev_dict and ev_dict["episodic_id"]:
+                            ev_dict["episodic_id"] = str(ev_dict["episodic_id"])
+                            
+                        if ev_dict["episodic_id"] not in existing_ev_ids:
+                            current_prov.append(ev_dict)
                     
                     existing.provenance = current_prov
                     
@@ -72,6 +77,14 @@ class KnowledgeConsolidator:
                 self.db.add(existing)
 
             else:
+                # Ensure all evidence UUIDs are strings for storage
+                processed_provenance = []
+                for e in claim.evidence:
+                    e_dict = e.model_dump()
+                    if "episodic_id" in e_dict and e_dict["episodic_id"]:
+                        e_dict["episodic_id"] = str(e_dict["episodic_id"])
+                    processed_provenance.append(e_dict)
+
                 new_assertion = Assertion(
                     id=uuid.uuid4(),
                     project_id=project_id,
@@ -86,7 +99,7 @@ class KnowledgeConsolidator:
                     rejection_reason=rejection_reason,
                     instruction_score=guard_res["instruction_score"],
                     safety_score=guard_res["safety_score"],
-                    provenance=[e.model_dump() for e in claim.evidence]
+                    provenance=processed_provenance
                 )
                 self.db.add(new_assertion)
         

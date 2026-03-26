@@ -27,6 +27,11 @@ Desktop.ini
 
 # Docker
 docker-data/
+llm_config.json
+mock_omnisim_run.py
+repro_hang.py
+start.sh
+verify_imports.py
 
 # Project Specific
 data/
@@ -51,3 +56,10 @@ target/
 *.egg-info/
 .env.*
 project_website/*
+docs/omnisim.md
+tests/test_omnisim_scenarios.py
+docs/mcp.md
+docs/api.md
+docs/llm.md
+docs/mcp.md
+docs/mcp.md
