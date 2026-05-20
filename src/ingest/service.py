@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from src.db.models import IngestJob, IngestJobRun, FetchedArtifact
 from src.ingest.connectors.web import WebURLConnector
 import threading
-from src.engine.scheduler import _log_job
+from src.engine.job_history import log_job as _log_job
 
 # Registry of available connectors
 CONNECTORS = {

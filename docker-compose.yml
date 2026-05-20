@@ -35,6 +35,13 @@ services:
     restart: unless-stopped
     networks:
       - condensate_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   condensate-core:
     build: .
@@ -42,6 +49,7 @@ services:
     volumes:
       - .:/app
       - /app/frontend # Don't overwrite frontend dir with host mount if building inside
+      - hf_cache:/root/.cache/huggingface
     environment:
       - DATABASE_URL=postgresql://user:password@condensate-db:5432/condensate
       - QDRANT_HOST=condensate-vector
@@ -52,15 +60,24 @@ services:
       - LLM_ENABLED=true
       - REVIEW_MODE=auto
       - PYTHONPATH=/app
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     depends_on:
       - condensate-db
       - condensate-vector
       - condensate-ollama
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir src --reload-dir migrations --reload-include main.py
     ports:
       - "8000:8000"
     networks:
       - condensate_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   condensate-frontend:
     build:
@@ -90,6 +107,7 @@ volumes:
   pgdata:
   qdrant_storage:
   ollama_data:
+  hf_cache:
 
 
 networks:

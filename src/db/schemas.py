@@ -71,6 +71,22 @@ class EntityResponse(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
+class AssertionResponse(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    subject_entity_id: Optional[uuid.UUID]
+    subject_text: Optional[str]
+    predicate: str
+    object_entity_id: Optional[uuid.UUID]
+    object_text: Optional[str]
+    polarity: int
+    confidence: float
+    status: str
+    temporal_step: Optional[int] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    model_config = ConfigDict(from_attributes=True)
+
 class RelationCreate(BaseModel):
     project_id: uuid.UUID
     from_id: uuid.UUID
@@ -89,6 +105,9 @@ class RelationResponse(BaseModel):
     to_id: uuid.UUID
     to_kind: str
     confidence: float
+    temporal_start: Optional[int] = None
+    temporal_end: Optional[int] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -97,7 +116,7 @@ class OntologyNodeCreate(BaseModel):
     node_type: str # entity_type|edge_type|concept|category|schema
 
 class OntologyCreate(BaseModel):
-    project_id: uuid.UUID
+    project_id: Optional[uuid.UUID] = None
     entity_types: Optional[List[str]] = []
     edge_types: Optional[List[str]] = []
 

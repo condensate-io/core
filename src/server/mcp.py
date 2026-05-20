@@ -36,10 +36,12 @@ async def call_tool(
     """
     if call.name == "store_memory":
         try:
+            # Prefer project_id from arguments for multi-project simulations
+            target_project_id = call.arguments.get("project_id") or str(api_key.project_id)
             agent = IngressAgent(db, qdrant_client)
-            # Map tool arguments to EpisodicItemCreate
+            
             item_data = EpisodicItemCreate(
-                project_id=str(api_key.project_id),
+                project_id=target_project_id,
                 text=call.arguments.get("content"),
                 source="api", # MCP calls are API sources
                 metadata={
@@ -51,7 +53,7 @@ async def call_tool(
             new_item = agent.process_memory(item_data)
             
             # 2. Schedule Condensation (Background)
-            background_tasks.add_task(run_async_condensation, str(api_key.project_id), str(new_item.id))
+            background_tasks.add_task(run_async_condensation, str(target_project_id), str(new_item.id))
             
             return {"content": [{"type": "text", "text": f"Episodic Item stored with ID: {new_item.id}. Condensation queued."}]}
         except Exception as e:
@@ -150,7 +152,7 @@ def run_async_condensation(project_id: str, item_id: str):
     from src.db.session import SessionLocal
     from src.db.models import EpisodicItem
     from src.engine.condenser import Condenser
-    from src.engine.scheduler import _log_job
+    from src.engine.job_history import log_job as _log_job
     from datetime import datetime, timezone
     import uuid
     import asyncio

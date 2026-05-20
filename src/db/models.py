@@ -92,12 +92,12 @@ class Assertion(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     
-    subject_entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("entities.id"), nullable=True)
+    subject_entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("entities.id", ondelete="SET NULL"), nullable=True)
     subject_text: Mapped[Optional[str]] = mapped_column(String, nullable=True) # Literal "user" or fallback
     
     predicate: Mapped[str] = mapped_column(String, nullable=False, index=True) # prefers, uses, etc
     
-    object_entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("entities.id"), nullable=True)
+    object_entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("entities.id", ondelete="SET NULL"), nullable=True)
     object_text: Mapped[Optional[str]] = mapped_column(String, nullable=True) # Literal value
     
     polarity: Mapped[int] = mapped_column(SmallInteger, default=1) # 1=affirm, -1=negated
@@ -119,6 +119,10 @@ class Assertion(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     provenance: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, default=[]) # [{episodic_id, quote}]
+    
+    # Temporal Tracking for OmniSim
+    temporal_step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    metadata_: Mapped[Dict[str, Any]] = mapped_column("metadata", JSONB, default={})
 
     # Cognitive Dynamics
     strength: Mapped[float] = mapped_column(Float, default=1.0, index=True) # Hebbian weight
@@ -190,6 +194,11 @@ class Relation(Base):
     
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     provenance: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, default=[])
+
+    # Temporal Tracking for OmniSim
+    temporal_start: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    temporal_end: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    metadata_: Mapped[Dict[str, Any]] = mapped_column("metadata", JSONB, default={})
 
     # Cognitive Dynamics
     strength: Mapped[float] = mapped_column(Float, default=1.0, index=True) # Hebbian weight

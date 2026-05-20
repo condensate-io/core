@@ -88,17 +88,33 @@ class LLMClient:
         async with sem:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 try:
+                    payload = {
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                    
+                    is_openai = "openai.com" in self.base_url.lower()
+                    is_o_model = any(m in self.model.lower() for m in ["o1-", "o3-", "nano"])
+                    
+                    if is_openai:
+                        # OpenAI uses response_format for JSON mode
+                        payload["response_format"] = {"type": "json_object"}
+                        # O-models (o1, o3, nano) use 'developer' role and don't support temperature
+                        if is_o_model:
+                            payload["messages"][0]["role"] = "developer"
+                        else:
+                            payload["temperature"] = 0.0
+                    else:
+                        # Ollama-style defaults
+                        payload["format"] = "json"
+                        payload["temperature"] = 0.0
+                        
                     response = await client.post(
                         f"{self.base_url}/chat/completions",
-                        json={
-                            "model": self.model,
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": prompt}
-                            ],
-                            "format": "json",
-                            "temperature": 0.0
-                        },
+                        json=payload,
                         headers={"Authorization": f"Bearer {self.api_key}"}
                     )
                     response.raise_for_status()

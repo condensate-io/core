@@ -72,6 +72,11 @@ class CognitiveService:
         activated = set(seed_ids)
         current_frontier = set(seed_ids)
         
+        # Threshold scales with decay_factor: a lower decay means we propagate more easily.
+        # Here we interpret decay_factor 0.5 as threshold 0.8.
+        # If decay_factor is lower (e.g. 0.2), threshold becomes 0.7.
+        threshold = 0.6 + (decay_factor * 0.4) 
+        
         for _ in range(steps):
             if not current_frontier:
                 break
@@ -79,10 +84,9 @@ class CognitiveService:
             next_frontier = set()
             
             # Find all outgoing relations from current frontier
-            # Filter by strength > threshold to propagate
             relations = self.db.query(Relation).filter(
                 Relation.from_id.in_(current_frontier),
-                Relation.strength > 0.8  # Threshold
+                Relation.strength > threshold
             ).all()
             
             for rel in relations:

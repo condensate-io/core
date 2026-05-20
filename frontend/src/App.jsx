@@ -7,7 +7,7 @@ import CondensationPlayground from './components/CondensationPlayground';
 function App() {
     const [auth, setAuth] = useState(localStorage.getItem('admin_auth') || null);
     const [activeTab, setActiveTab] = useState('dashboard');
-    const [stats, setStats] = useState({ total_keys: 0, total_projects: 0, total_memories: 0, total_learnings: 0 });
+    const [stats, setStats] = useState({ total_keys: 0, total_projects: 0, total_memories: 0, total_learnings: 0, total_consolidations: 0 });
     const [keys, setKeys] = useState([]);
     const [sources, setSources] = useState([]);
     const [learnings, setLearnings] = useState([]);
@@ -27,6 +27,7 @@ function App() {
     const [entities, setEntities] = useState([]);
     const [jobs, setJobs] = useState([]);
     const [jobsLoading, setJobsLoading] = useState(false);
+    const [consolidations, setConsolidations] = useState([]);
     const [ontologySubTab, setOntologySubTab] = useState('assertions');
     const [projects, setProjects] = useState([]);
     const [relations, setRelations] = useState([]);
@@ -35,6 +36,8 @@ function App() {
     const [llmConfigs, setLlmConfigs] = useState({ configs: [] });
     const [testLoading, setTestLoading] = useState({});
     const [testResults, setTestResults] = useState({});
+    const [systemConfig, setSystemConfig] = useState({ review_mode: 'manual' });
+    const [synapseConfig, setSynapseConfig] = useState({ enabled: true, learning_rate: 0.08, decay_rate: 0.995, prune_threshold: 0.05, consolidation_threshold: 0.75, decay_interval_hours: 24 });
     const fgRef = useRef();
 
     // Clear selections when switching tabs
@@ -50,8 +53,10 @@ function App() {
     useEffect(() => {
         if (!auth) return;
         fetchData();
-        if (activeTab === 'settings') {
+        if (activeTab === 'settings' || activeTab === 'playground') {
             fetchLlmConfig();
+            fetchSystemConfig();
+            fetchSynapseConfig();
         }
     }, [auth, activeTab, visualMultiplier]);
 
@@ -95,6 +100,10 @@ function App() {
 
         if (activeTab === 'relations') {
             fetch('/api/admin/relations', { headers }).then(res => res.json()).then(setRelations).catch(console.error);
+        }
+        
+        if (activeTab === 'consolidations') {
+            fetch('/api/admin/consolidations', { headers }).then(res => res.json()).then(setConsolidations).catch(console.error);
         }
 
         if (activeTab === 'review') {
@@ -176,8 +185,63 @@ function App() {
         }
     };
 
+    const fetchSystemConfig = async () => {
+        try {
+            const res = await fetch('/api/admin/config/system', { headers });
+            if (res.ok) {
+                const data = await res.json();
+                setSystemConfig(data);
+            }
+        } catch (err) {
+            console.error('Failed to fetch system config', err);
+        }
+    };
+
+    const fetchSynapseConfig = async () => {
+        try {
+            const res = await fetch('/api/admin/config/synapse', { headers });
+            if (res.ok) {
+                const data = await res.json();
+                setSynapseConfig(data);
+            }
+        } catch (err) {
+            console.error('Failed to fetch synapse config', err);
+        }
+    };
+
+    const saveSynapseConfig = async (newConfig) => {
+        try {
+            const res = await fetch('/api/admin/config/synapse', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(newConfig)
+            });
+            if (res.ok) {
+                setSynapseConfig(newConfig);
+            }
+        } catch (err) {
+            console.error('Failed to save synapse config', err);
+        }
+    };
+
+    const saveSystemConfig = async (newConfig) => {
+        try {
+            const res = await fetch('/api/admin/config/system', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(newConfig)
+            });
+            if (res.ok) {
+                setSystemConfig(newConfig);
+            }
+        } catch (err) {
+            console.error('Failed to save system config', err);
+        }
+    };
+
     const saveLlmConfigs = async (newConfigs) => {
-        const payload = { configs: newConfigs || llmConfigs.configs };
+        const configsToSave = (newConfigs && Array.isArray(newConfigs)) ? newConfigs : llmConfigs.configs;
+        const payload = { configs: configsToSave };
         try {
             const response = await fetch('/api/admin/config/llm/save', {
                 method: 'POST',
@@ -268,7 +332,8 @@ function App() {
             const endpoint = type === 'learning' ? 'learnings' : 
                             type === 'memory' ? 'memories' :
                             type === 'project' ? 'projects' :
-                            type === 'entity' ? 'entities' : 'relations';
+                            type === 'entity' ? 'entities' : 
+                            type === 'consolidation' ? 'consolidations' : 'relations';
             const res = await fetch(`/api/admin/${endpoint}/${id}`, { method: 'DELETE', headers });
             if (res.ok) fetchData();
         } catch (err) { console.error(err); }
@@ -458,6 +523,8 @@ function App() {
         setPlaygroundResult(null);
         try {
             const pid = keys.length > 0 ? keys[0].project_id : "default-project";
+            const currentLlmConfig = llmConfigs.configs.find(c => c.is_primary) || llmConfigs.configs.find(c => c.is_active) || null;
+
             const res = await fetch('/api/admin/playground/retrieve', {
                 method: 'POST',
                 headers,
@@ -465,7 +532,7 @@ function App() {
                     project_id: pid,
                     query: playgroundQuery,
                     skip_llm: false,
-                    llm_config: llmConfig
+                    llm_config: currentLlmConfig
                 })
             });
             const data = await res.json();
@@ -523,6 +590,30 @@ function App() {
         fetchPendingAssertions();
     };
 
+    const [triggering, setTriggering] = useState({});
+
+    const manualTrigger = async (projectId, action) => {
+        setTriggering(prev => ({ ...prev, [`${projectId}-${action}`]: true }));
+        try {
+            const res = await fetch(`/api/admin/projects/${projectId}/${action}`, {
+                method: 'POST',
+                headers
+            });
+            if (res.ok) {
+                alert(`${action.charAt(0).toUpperCase() + action.slice(1)} triggered successfully`);
+                fetchData();
+            } else {
+                const err = await res.json();
+                alert(`Failed to trigger ${action}: ${err.detail}`);
+            }
+        } catch (err) {
+            console.error(err);
+            alert(`Error triggering ${action}`);
+        } finally {
+            setTriggering(prev => ({ ...prev, [`${projectId}-${action}`]: false }));
+        }
+    };
+
     if (!auth) {
         return <Login onLogin={handleLogin} />;
     }
@@ -578,6 +669,10 @@ function App() {
                         <FileText className="w-4 h-4" /> Assertions
                         <span className="ml-auto text-slate-500 text-xs">{stats.total_learnings}</span>
                     </button>
+                    <button onClick={() => setActiveTab('consolidations')} className={`w-full text-left px-4 py-2 rounded flex items-center gap-2 ${activeTab === 'consolidations' ? 'bg-blue-600' : 'hover:bg-slate-700'}`}>
+                        <Brain className="w-4 h-4" /> Consolidations
+                        <span className="ml-auto text-slate-500 text-xs">{stats.total_consolidations}</span>
+                    </button>
                     <button onClick={() => setActiveTab('entities')} className={`w-full text-left px-4 py-2 rounded flex items-center gap-2 ${activeTab === 'entities' ? 'bg-blue-600' : 'hover:bg-slate-700'}`}>
                         <Tag className="w-4 h-4" /> Entities
                         <span className="ml-auto text-slate-500 text-xs">{stats.total_entities}</span>
@@ -597,6 +692,11 @@ function App() {
                     <button onClick={() => setActiveTab('jobs')} className={`w-full text-left px-4 py-2 rounded flex items-center gap-2 ${activeTab === 'jobs' ? 'bg-blue-600' : 'hover:bg-slate-700'}`}>
                         <Cpu className="w-4 h-4" /> Jobs
                     </button>
+                    {systemConfig.condensation_paused && (
+                        <div className="px-4 py-2 mt-2 bg-red-900/30 border border-red-800/50 rounded flex items-center gap-2 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                            <Activity className="w-3 h-3 animate-pulse" /> Condensation Paused
+                        </div>
+                    )}
                     <button onClick={() => setActiveTab('settings')} className={`w-full text-left px-4 py-2 rounded flex items-center gap-2 ${activeTab === 'settings' ? 'bg-blue-600' : 'hover:bg-slate-700'}`}>
                         <Settings className="w-4 h-4" /> Model Config
                     </button>
@@ -618,6 +718,10 @@ function App() {
                             <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
                                 <div className="text-slate-400 text-xs">Assertions</div>
                                 <div className="text-2xl font-bold">{stats.total_learnings}</div>
+                            </div>
+                            <div className="bg-slate-800 p-4 rounded-lg border border-blue-900">
+                                <div className="text-blue-400 text-xs">Consolidations</div>
+                                <div className="text-2xl font-bold text-blue-300">{stats.total_consolidations ?? 0}</div>
                             </div>
                             <div className="bg-slate-800 p-4 rounded-lg border border-emerald-800">
                                 <div className="text-emerald-400 text-xs">Entities</div>
@@ -645,7 +749,7 @@ function App() {
                             <div className="absolute top-4 left-4 z-10 space-y-4 max-w-sm w-full pointer-events-none">
                                 <div className="bg-slate-900/90 p-4 rounded backdrop-blur-sm pointer-events-auto border border-slate-700 shadow-2xl">
                                     <h2 className="text-lg font-bold mb-3 flex items-center gap-2 text-blue-400">
-                                        <Database className="w-5 h-5" /> OmniSim Explorer
+                                        <Database className="w-5 h-5" /> Memory Explorer
                                     </h2>
                                     <div className="space-y-4">
                                         <div>
@@ -718,7 +822,7 @@ function App() {
                                     />
                                     <div className="border-t border-slate-700 pt-3">
                                         <div className="text-xs font-semibold text-slate-400 uppercase mb-2">Node Types</div>
-                                        {[['episodic', '#60a5fa', 'Episodic'], ['semantic', '#34d399', 'Assertion'], ['entity', '#f472b6', 'Entity']].map(([type, color, label]) => (
+                                        {[['episodic', '#475569', 'Episodic'], ['semantic', '#34d399', 'Assertion'], ['entity', '#f472b6', 'Entity']].map(([type, color, label]) => (
                                             <label key={type} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer mb-1">
                                                 <input
                                                     type="checkbox"
@@ -885,7 +989,25 @@ function App() {
                                             <td className="p-4"><input type="checkbox" checked={selectedIds.includes(p.id)} onChange={(e) => setSelectedIds(e.target.checked ? [...selectedIds, p.id] : selectedIds.filter(id => id !== p.id))} /></td>
                                             <td className="p-4 text-white font-medium">{p.name}</td>
                                             <td className="p-4 text-slate-500 font-mono text-xs">{p.id}</td>
-                                            <td className="p-4 text-right">
+                                            <td className="p-4 text-right flex justify-end gap-2">
+                                                <button 
+                                                    onClick={() => manualTrigger(p.id, 'condense')} 
+                                                    disabled={triggering[`${p.id}-condense`]}
+                                                    className="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded flex items-center gap-1 text-xs transition-colors disabled:opacity-50"
+                                                    title="Manual Condensation (L2 Enrichment)"
+                                                >
+                                                    <Filter className={`w-4 h-4 ${triggering[`${p.id}-condense`] ? 'animate-spin' : ''}`} />
+                                                    Condense
+                                                </button>
+                                                <button 
+                                                    onClick={() => manualTrigger(p.id, 'consolidate')} 
+                                                    disabled={triggering[`${p.id}-consolidate`]}
+                                                    className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded flex items-center gap-1 text-xs transition-colors disabled:opacity-50"
+                                                    title="Manual Consolidation (Synapse clustering)"
+                                                >
+                                                    <Brain className={`w-4 h-4 ${triggering[`${p.id}-consolidate`] ? 'animate-pulse' : ''}`} />
+                                                    Consolidate
+                                                </button>
                                                 <button onClick={() => setEditItem({ type: 'project', data: p })} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded"><FileText className="w-4 h-4" /></button>
                                                 <button onClick={() => deleteItem('project', p.id)} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded"><Trash2 className="w-4 h-4" /></button>
                                             </td>
@@ -939,9 +1061,17 @@ function App() {
                     <div className="flex flex-col h-full">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-2xl font-bold text-blue-400 flex items-center gap-2"><List className="w-6 h-6" /> Episodic Items</h2>
-                            {selectedIds.length > 0 && (
-                                <button onClick={() => bulkDelete('memory')} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded flex items-center gap-2"><Trash2 className="w-4 h-4" /> Delete ({selectedIds.length})</button>
-                            )}
+                            <div className="flex gap-4">
+                                <button 
+                                    onClick={() => selectedProjectId ? manualTrigger(selectedProjectId, 'condense') : alert('Please select a project in the Dashboard first to condense its memories.')} 
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded text-sm font-bold flex items-center gap-2 shadow-lg shadow-emerald-900/40 transition-all active:scale-95"
+                                >
+                                    <Filter className="w-4 h-4" /> Run Condensation
+                                </button>
+                                {selectedIds.length > 0 && (
+                                    <button onClick={() => bulkDelete('memory')} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded flex items-center gap-2"><Trash2 className="w-4 h-4" /> Delete ({selectedIds.length})</button>
+                                )}
+                            </div>
                         </div>
                         <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden flex-1 overflow-y-auto">
                             <table className="w-full text-left border-collapse">
@@ -1001,12 +1131,36 @@ function App() {
                                 <h2 className="text-3xl font-bold text-blue-400 mb-2">Cognitive Engines</h2>
                                 <p className="text-slate-400">Configure Primary (default) and Secondary model profiles for retrieval and synthesis.</p>
                             </div>
-                            <button 
-                                onClick={saveLlmConfigs} 
-                                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-blue-900/40 transition-all active:scale-95"
-                            >
-                                <Save className="w-4 h-4" /> Save All Configurations
-                            </button>
+                            <div className="flex gap-4 items-center">
+                                <div className="bg-slate-800/50 p-1.5 rounded-xl border border-slate-700 flex items-center gap-2">
+                                    <button 
+                                        onClick={() => saveSystemConfig({...systemConfig, condensation_paused: !systemConfig.condensation_paused})}
+                                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${systemConfig.condensation_paused ? 'bg-red-600 text-white shadow-lg' : 'bg-slate-700 text-slate-500 hover:text-slate-300'}`}
+                                    >
+                                        <Activity className={`w-3.5 h-3.5 ${systemConfig.condensation_paused ? '' : 'animate-pulse'}`} />
+                                        {systemConfig.condensation_paused ? 'Condensation Paused' : 'Condensation Active'}
+                                    </button>
+                                    <div className="w-px h-4 bg-slate-700 mx-1" />
+                                    <button 
+                                        onClick={() => saveSystemConfig({...systemConfig, review_mode: 'manual'})}
+                                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${systemConfig.review_mode === 'manual' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                                    >
+                                        <ShieldAlert className="w-3.5 h-3.5" /> Manual Review
+                                    </button>
+                                    <button 
+                                        onClick={() => saveSystemConfig({...systemConfig, review_mode: 'auto'})}
+                                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${systemConfig.review_mode === 'auto' ? 'bg-green-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                                    >
+                                        <CheckCircle className="w-3.5 h-3.5" /> Auto-Approve
+                                    </button>
+                                </div>
+                                <button 
+                                    onClick={() => saveLlmConfigs()} 
+                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-blue-900/40 transition-all active:scale-95"
+                                >
+                                    <Save className="w-4 h-4" /> Save LLM Settings
+                                </button>
+                            </div>
                         </div>
 
                         <div className="grid gap-6">
@@ -1117,6 +1271,89 @@ function App() {
                         >
                             <Plus className="w-5 h-5" /> Add New Model Profile
                         </button>
+
+                        <div className="mt-12">
+                            <h3 className="text-2xl font-bold text-blue-400 mb-6 flex items-center gap-3">
+                                <Brain className="w-6 h-6" /> Synapse Engine (Learning Subsystem)
+                            </h3>
+                            <div className="bg-slate-800 rounded-xl border border-slate-700 p-8 space-y-8">
+                                <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-700/50">
+                                    <div>
+                                        <div className="font-bold text-white mb-1">Engine Status</div>
+                                        <div className="text-sm text-slate-400">Enable or disable the automatic relationship discovery and Hebbian learning.</div>
+                                    </div>
+                                    <button 
+                                        onClick={() => saveSynapseConfig({...synapseConfig, enabled: !synapseConfig.enabled})}
+                                        className={`px-6 py-2 rounded-lg font-bold transition-all ${synapseConfig.enabled ? 'bg-green-600 text-white shadow-lg shadow-green-900/20' : 'bg-slate-700 text-slate-400'}`}
+                                    >
+                                        {synapseConfig.enabled ? 'Enabled' : 'Disabled'}
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-8">
+                                    <div className="space-y-6">
+                                        <div>
+                                            <div className="flex justify-between mb-2">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Learning Rate (LTP)</label>
+                                                <span className="text-blue-400 font-mono text-xs">{synapseConfig.learning_rate}</span>
+                                            </div>
+                                            <input 
+                                                type="range" min="0.01" max="0.5" step="0.01"
+                                                value={synapseConfig.learning_rate}
+                                                onChange={e => setSynapseConfig({...synapseConfig, learning_rate: parseFloat(e.target.value)})}
+                                                onMouseUp={() => saveSynapseConfig(synapseConfig)}
+                                                className="w-full h-2 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                            />
+                                            <div className="text-[10px] text-slate-500 mt-2">Determines how quickly connections strengthen when co-retrieved.</div>
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between mb-2">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Consolidation Threshold</label>
+                                                <span className="text-blue-400 font-mono text-xs">{synapseConfig.consolidation_threshold}</span>
+                                            </div>
+                                            <input 
+                                                type="range" min="0.5" max="0.95" step="0.01"
+                                                value={synapseConfig.consolidation_threshold}
+                                                onChange={e => setSynapseConfig({...synapseConfig, consolidation_threshold: parseFloat(e.target.value)})}
+                                                onMouseUp={() => saveSynapseConfig(synapseConfig)}
+                                                className="w-full h-2 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                            />
+                                            <div className="text-[10px] text-slate-500 mt-2">Minimum weight required for a cluster to trigger higher-order consolidation.</div>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-6">
+                                        <div>
+                                            <div className="flex justify-between mb-2">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Decay Rate</label>
+                                                <span className="text-blue-400 font-mono text-xs">{synapseConfig.decay_rate}</span>
+                                            </div>
+                                            <input 
+                                                type="range" min="0.9" max="0.999" step="0.001"
+                                                value={synapseConfig.decay_rate}
+                                                onChange={e => setSynapseConfig({...synapseConfig, decay_rate: parseFloat(e.target.value)})}
+                                                onMouseUp={() => saveSynapseConfig(synapseConfig)}
+                                                className="w-full h-2 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                            />
+                                            <div className="text-[10px] text-slate-500 mt-2">Rate at which connections weaken without reinforcement (LTD).</div>
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between mb-2">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Prune Threshold</label>
+                                                <span className="text-blue-400 font-mono text-xs">{synapseConfig.prune_threshold}</span>
+                                            </div>
+                                            <input 
+                                                type="range" min="0.01" max="0.2" step="0.01"
+                                                value={synapseConfig.prune_threshold}
+                                                onChange={e => setSynapseConfig({...synapseConfig, prune_threshold: parseFloat(e.target.value)})}
+                                                onMouseUp={() => saveSynapseConfig(synapseConfig)}
+                                                className="w-full h-2 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                            />
+                                            <div className="text-[10px] text-slate-500 mt-2">Weight below which a synapse is permanently deleted.</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -1136,6 +1373,61 @@ function App() {
                                     <div className="flex gap-2">
                                         <button onClick={() => approveAssertion(a.id)} className="bg-green-700 hover:bg-green-600 px-3 py-1 rounded text-sm font-semibold">Approve</button>
                                         <button onClick={() => rejectAssertion(a.id)} className="bg-red-800 hover:bg-red-700 px-3 py-1 rounded text-sm font-semibold">Reject</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'consolidations' && (
+                    <div className="space-y-6 overflow-auto h-full">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-2xl font-bold flex items-center gap-2 text-blue-400">
+                                <Brain className="w-6 h-6" /> Higher-Order Consolidations
+                            </h2>
+                            <div className="flex gap-4">
+                                <button 
+                                    onClick={() => selectedProjectId ? manualTrigger(selectedProjectId, 'consolidate') : alert('Please select a project in the Dashboard first to run a specific consolidation cycle.')} 
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-900/40 transition-all active:scale-95"
+                                >
+                                    <Brain className="w-4 h-4" /> Run Consolidation Cycle
+                                </button>
+                                <button onClick={() => fetchData()} className="px-4 py-2 bg-slate-800 rounded text-sm border border-slate-700">Refresh</button>
+                            </div>
+                        </div>
+                        <div className="grid gap-4">
+                            {consolidations.length === 0 && (
+                                <div className="text-center py-20 bg-slate-800 rounded-xl border border-dashed border-slate-700 text-slate-500">
+                                    No consolidated learnings found yet. Run the condenser to generate meta-cognitive insights.
+                                </div>
+                            )}
+                            {consolidations.map(c => (
+                                <div key={c.id} className="bg-slate-800 rounded-xl border border-slate-700 p-6 hover:border-blue-500/50 transition-colors group">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Policy / Meta-Learning</span>
+                                        </div>
+                                        <div className="text-xs font-mono text-slate-500">{new Date(c.created_at).toLocaleString()}</div>
+                                    </div>
+                                    <div className="text-lg text-slate-200 mb-6 leading-relaxed font-medium">
+                                        {c.content}
+                                    </div>
+                                    <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
+                                        <div className="flex gap-4">
+                                            <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-2">
+                                                <Activity className="w-3.5 h-3.5 text-blue-400" />
+                                                <span className="text-xs font-bold text-blue-400">{(c.confidence * 100).toFixed(0)}% Confidence</span>
+                                            </div>
+                                            <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-2">
+                                                <List className="w-3.5 h-3.5 text-slate-400" />
+                                                <span className="text-xs font-bold text-slate-400">{c.evidence_count} Source Memories</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => deleteItem('consolidation', c.id)} className="opacity-0 group-hover:opacity-100 p-2 text-slate-500 hover:text-red-400 transition-all">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 </div>
                             ))}

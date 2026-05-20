@@ -1,12 +1,14 @@
 import axios, { AxiosInstance } from 'axios';
 
+export { CondensateOrchestrationHooks } from './lifecycle';
+
 /**
  * Episodic Item Schema (V2)
  * Corresponds to src/db/schemas.py EpisodicItemCreate
  */
 export interface EpisodicItem {
     id?: string;
-    project_id: string;
+    project_id?: string;
     source: string; // chatgpt_export | api | tool | note
     text: string;
     occurred_at?: string; // ISO-8601
@@ -42,9 +44,38 @@ export class CondensatesClient {
      * @param item The raw item data.
      */
     async addItem(item: EpisodicItem): Promise<{ id: string }> {
-        // V2 Endpoint: /api/admin/memories
-        const response = await this.client.post('/api/admin/memories', item);
+        const payload = {
+            project_id: item.project_id || '00000000-0000-0000-0000-000000000000',
+            source: item.source || 'api',
+            text: item.text,
+            metadata: item.metadata || {},
+            occurred_at: item.occurred_at
+        };
+        const response = await this.client.post('/api/v1/episodic', payload);
         return response.data;
+    }
+
+    /**
+     * Standardize injection of event_type metadata for Symphony-like orchestrations.
+     */
+    async addLifecycleEvent(
+        eventType: string,
+        taskId: string,
+        agentId: string,
+        text: string,
+        metadata?: Record<string, any>
+    ): Promise<{ id: string }> {
+        const fullMetadata = {
+            event_type: eventType,
+            task_id: taskId,
+            agent_id: agentId,
+            ...(metadata || {})
+        };
+        return this.addItem({
+            text,
+            source: 'orchestrator',
+            metadata: fullMetadata
+        });
     }
 
     /**

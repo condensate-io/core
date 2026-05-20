@@ -19,7 +19,7 @@ class DeterministicCondenser:
     A deterministic approach to memory condensation (L3-Condenser).
     No LLM magic—just rigorous heuristic extraction.
     """
-    def process(self, text: str, ner_entities: List[ExtractedEntity] = None) -> Dict[str, Any]:
+    def process(self, text: str, ner_entities: List[ExtractedEntity] = None, ontology_nodes: List[str] = None) -> Dict[str, Any]:
         start_time = time.time() * 1000
         trace = []
         
@@ -48,7 +48,11 @@ class DeterministicCondenser:
             word = m.group(0)
             if len(word) >= MIN_ENTITY_LENGTH and word.lower() not in _stop_words():
                 if word not in entities_dict:
-                    entities_dict[word] = "concept"
+                    # Check if word is in our custom ontology
+                    if ontology_nodes and word in ontology_nodes:
+                         entities_dict[word] = word
+                    else:
+                         entities_dict[word] = "concept"
                 
         for term in TECH_TERMS:
             if term in text.lower():
@@ -62,7 +66,11 @@ class DeterministicCondenser:
         clean_entities = {}
         for name, etype in entities_dict.items():
             if not CODE_NOISE.search(name):
-                clean_entities[name] = etype
+                # If the name itself matches an ontology label, use that label as type
+                if ontology_nodes and name in ontology_nodes:
+                    clean_entities[name] = name
+                else:
+                    clean_entities[name] = etype
 
         # Convert to ExtractedEntity objects
         extracted_entities = [
@@ -81,8 +89,24 @@ class DeterministicCondenser:
         # Pattern A: [Entity] [Verb] [Value/State] (e.g. Energy is 40%)
         # Pattern B: [Entity] [Action] [Entity] (e.g. Sarah moved to Sector 7G)
         
-        action_verbs = ['met', 'entered', 'discussed', 'created', 'updated', 'deleted', 'fixed', 'implemented', 'moved to', 'consumed', 'observed', 'detected']
-        state_verbs = ['is', 'at', 'reached', 'detected at']
+        action_verbs = [
+            'met', 'entered', 'discussed', 'created', 'updated', 'deleted', 'fixed', 'implemented', 
+            'moved to', 'consumed', 'observed', 'detected', 'executed', 'bought', 'sold', 
+            'buy order', 'sell order', 'purchased', 'stabilized', 'anomaly', 'processed',
+            'started', 'finished', 'failed', 'succeeded', 'sent', 'received', 'built', 'destroyed',
+            'allocated', 'deallocated', 'requested', 'authorized', 'denied', 'changed', 'verified',
+            'validated', 'notified', 'alerted', 'monitored', 'calculated', 'generated', 'transformed',
+            'merged', 'split', 'assigned', 'removed', 'added', 'joined', 'left', 'arrived', 'called',
+            'invoked', 'triggered', 'activated', 'deactivated', 'enabled', 'disabled', 'saved',
+            'loaded', 'exported', 'imported', 'uploaded', 'downloaded', 'synced', 'synchronized',
+            'read', 'wrote', 'modified', 'reset', 'cleared', 'stored', 'retrieved', 'accessed'
+        ]
+        state_verbs = [
+            'is', 'at', 'reached', 'detected at', 'impacted by', 'located at', 'belongs to',
+            'part of', 'owner of', 'member of', 'assigned to', 'running on', 'connected to',
+            'owns', 'prefers', 'knows', 'contains', 'supports', 'requires', 'depends on',
+            'lives in', 'works at', 'uses', 'manages', 'controls', 'supervises', 'reports to'
+        ]
         
         for sent in sentences:
             sent_entities = [name for name in clean_entities.keys() if name.lower() in sent.lower()]
@@ -135,7 +159,10 @@ class DeterministicCondenser:
         
         for line in lines:
             lower = line.lower()
-            if any(key in lower for key in ['need to', 'prioritize', 'focus on', 'meeting', 'bottleneck', 'policy', 'alert', 'critical']):
+            if any(key in lower for key in [
+                'need to', 'prioritize', 'focus on', 'meeting', 'bottleneck', 'policy', 'alert', 'critical',
+                'executed', 'order', 'stabilize', 'anomaly', 'detected', 'impact', 'massive'
+            ]):
                 cleaned = re.sub(r'^(USER|AGENT|BOB|ALICE|SYSTEM):\s*', '', line, flags=re.IGNORECASE).strip()
                 action_lines.append(cleaned)
                 

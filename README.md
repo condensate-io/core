@@ -180,6 +180,9 @@ Raw Input (Chat / Docs / API)
    [Condenser]      ──── NER → LLM Extraction → Entity Canonicalization
         │                → Assertion Consolidation → Edge Synthesis
         ▼
+   [Synapse Engine] ──── Multi-Signal Scoring → Cluster Detection
+        │                → LLM High-Fidelity Consolidation
+        ▼
    [Knowledge Graph] ─── Entities, Assertions, Relations (Postgres)
         │
         ▼

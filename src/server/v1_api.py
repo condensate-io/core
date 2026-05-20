@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_
 from typing import List, Optional
-from src.db.session import get_db, QDRANT_URL, QDRANT_API_KEY
+from src.db.session import get_db, get_qdrant, QDRANT_URL, QDRANT_API_KEY
+from src.server.admin import get_api_key
 from src.db.models import EpisodicItem, Entity, Assertion, Project, Relation, OntologyNode, ApiKey
 from src.db.schemas import (
     ProjectCreate, ProjectResponse,
@@ -40,10 +41,34 @@ def get_projects(limit: int = 100, db: Session = Depends(get_db)):
     return db.execute(stmt).scalars().all()
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: uuid.UUID, db: Session = Depends(get_db)):
+def delete_project(project_id: uuid.UUID, db: Session = Depends(get_db), qdrant: QdrantClient = Depends(get_qdrant)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    # 1. Delete associated vectors in Qdrant
+    try:
+        from qdrant_client.http import models
+        for collection in ["episodic_chunks", "memories"]:
+            try:
+                qdrant.delete(
+                    collection_name=collection,
+                    points_selector=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="project_id",
+                                match=models.MatchValue(value=str(project_id))
+                            )
+                        ]
+                    )
+                )
+            except Exception:
+                pass
+    except Exception as e:
+        import logging
+        logging.getLogger("v1_api").warning(f"Failed to delete project vectors from Qdrant: {e}")
+
+    # 2. Delete from DB (cascades to all other child tables)
     db.delete(project)
     db.commit()
     return {"status": "ok"}
@@ -93,6 +118,25 @@ def get_episodic_items(
         for i in items
     ]
 
+@router.post("/episodic")
+async def create_episodic_item(
+    data: EpisodicItemCreate, 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db), 
+    qdrant: QdrantClient = Depends(get_qdrant),
+    api_key: ApiKey = Depends(get_api_key)
+):
+    # Enforce API Key Scoping / Tenanting
+    data.project_id = str(api_key.project_id)
+    
+    ingress = IngressAgent(db, qdrant)
+    new_item = ingress.process_memory(data)
+    
+    # Schedule condensation in background
+    background_tasks.add_task(_condense_project_background, api_key.project_id)
+    
+    return {"id": str(new_item.id), "status": "stored"}
+
 @router.post("/episodic/bulk")
 async def bulk_ingest(data: EpisodicBulkCreate, background_tasks: BackgroundTasks):
     """
@@ -133,7 +177,12 @@ def create_graph(data: GraphCreate, db: Session = Depends(get_db)):
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        return {"id": str(project.id), "name": project.name, "status": "existing"}
+        response = {"id": str(project.id), "name": project.name, "status": "existing"}
+        if data.api_key_name:
+            ak = db.query(ApiKey).filter(ApiKey.name == data.api_key_name, ApiKey.project_id == project.id).first()
+            if ak:
+                response["api_key"] = ak.key
+        return response
     
     # Otherwise create new project
     project = Project(name=name)
@@ -146,7 +195,67 @@ def create_graph(data: GraphCreate, db: Session = Depends(get_db)):
         
     db.commit()
     db.refresh(project)
-    return {"id": str(project.id), "name": project.name, "status": "created"}
+    response = {"id": str(project.id), "name": project.name, "status": "created"}
+    if data.api_key_name:
+        response["api_key"] = ak.key
+    return response
+
+async def _condense_project_background(project_id: uuid.UUID) -> None:
+    """
+    Own DB session after the HTTP request ends. Avoids using the request-scoped
+    Session in BackgroundTasks (undefined lifecycle vs pool checkout).
+    """
+    from src.db.session import SessionLocal
+    from src.engine.condenser import Condenser
+
+    db = SessionLocal()
+    try:
+        stmt = select(EpisodicItem).where(EpisodicItem.project_id == project_id)
+        items = db.execute(stmt).scalars().all()
+        if not items:
+            return
+        condenser = Condenser(db)
+        await condenser.distill(project_id, items)
+    finally:
+        db.close()
+
+
+@router.post("/projects/{project_id}/condense")
+async def trigger_condensation(project_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Trigger the distillation process for all episodic items in this project.
+    Now supports both single UUID and JSON list of UUIDs (to fix 422 errors from scripts).
+    """
+    import json
+
+    # 1. Resolve project_ids
+    project_ids = []
+    try:
+        # Check if it's a bracketed list string like ['uuid1', 'uuid2']
+        if project_id.startswith("["):
+            # Handle both JSON and Python repr (common in some scripts)
+            cleaned = project_id.replace("'", '"')
+            pids = json.loads(cleaned)
+            if isinstance(pids, list):
+                project_ids = [uuid.UUID(str(p)) for p in pids]
+        else:
+            project_ids = [uuid.UUID(project_id)]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid project_id format: {e}")
+
+    results = []
+    for pid in project_ids:
+        stmt = select(EpisodicItem).where(EpisodicItem.project_id == pid)
+        items = db.execute(stmt).scalars().all()
+
+        if not items:
+            results.append({"project_id": str(pid), "status": "skipped", "message": "No items to condense"})
+            continue
+
+        background_tasks.add_task(_condense_project_background, pid)
+        results.append({"project_id": str(pid), "status": "started", "items_count": len(items)})
+
+    return {"status": "processed", "results": results}
 
 @router.post("/graph/entities")
 def create_entity(data: EntityCreate, db: Session = Depends(get_db)):
@@ -168,7 +277,7 @@ def create_entity(data: EntityCreate, db: Session = Depends(get_db)):
 
 @router.get("/graph/entities")
 def get_entities(
-    project_id: Optional[List[str]] = Query(None),
+    project_id: Optional[List[uuid.UUID]] = Query(None),
     type: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
@@ -215,7 +324,7 @@ def create_relation(data: RelationCreate, db: Session = Depends(get_db)):
 
 @router.get("/graph/relations")
 def get_relations(
-    project_id: Optional[List[str]] = Query(None),
+    project_id: Optional[List[uuid.UUID]] = Query(None),
     entity_id: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
@@ -248,21 +357,21 @@ def get_relations(
         for r in relations
     ]
 
-@router.post("/graph/ontology")
-def update_ontology(data: OntologyCreate, db: Session = Depends(get_db)):
+@router.post("/projects/{project_id}/ontology")
+def update_ontology(project_id: uuid.UUID, data: OntologyCreate, db: Session = Depends(get_db)):
     """
-    Update or create multiple ontology nodes at once.
+    Update or create multiple ontology nodes for a specific project.
     """
     for label in data.entity_types:
         # Check if exists
         exists = db.query(OntologyNode).filter(
-            OntologyNode.project_id == data.project_id,
+            OntologyNode.project_id == project_id,
             OntologyNode.label == label,
             OntologyNode.node_type == "entity_type"
         ).first()
         if not exists:
             node = OntologyNode(
-                project_id=data.project_id,
+                project_id=project_id,
                 label=label,
                 node_type="entity_type",
                 confidence=1.0
@@ -271,13 +380,13 @@ def update_ontology(data: OntologyCreate, db: Session = Depends(get_db)):
             
     for label in data.edge_types:
         exists = db.query(OntologyNode).filter(
-            OntologyNode.project_id == data.project_id,
+            OntologyNode.project_id == project_id,
             OntologyNode.label == label,
             OntologyNode.node_type == "edge_type"
         ).first()
         if not exists:
             node = OntologyNode(
-                project_id=data.project_id,
+                project_id=project_id,
                 label=label,
                 node_type="edge_type",
                 confidence=1.0
@@ -285,9 +394,9 @@ def update_ontology(data: OntologyCreate, db: Session = Depends(get_db)):
             db.add(node)
             
     db.commit()
-    return {"status": "ok"}
+    return {"status": "ok", "project_id": str(project_id)}
 
-@router.get("/graph/ontology")
+@router.get("/projects/{project_id}/ontology")
 def get_ontology(project_id: uuid.UUID, db: Session = Depends(get_db)):
     stmt = select(OntologyNode).where(OntologyNode.project_id == project_id)
     nodes = db.execute(stmt).scalars().all()
@@ -301,9 +410,24 @@ def get_ontology(project_id: uuid.UUID, db: Session = Depends(get_db)):
         "edge_types": edge_types
     }
 
+@router.get("/projects/{project_id}/graph/analytics")
+def get_graph_analytics(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    """
+    Compute PageRank centrality, communities, and bottlenecks for a project.
+    """
+    from src.engine.analytics import GraphAnalyst
+    analyst = GraphAnalyst(db, project_id)
+    
+    return {
+        "project_id": str(project_id),
+        "centrality": analyst.get_centrality()[:30], # Top 30 for UI/Report
+        "communities": analyst.get_communities(),
+        "bottlenecks": analyst.get_bottlenecks()
+    }
+
 @router.get("/graph/assertions")
 def get_assertions(
-    project_id: Optional[List[str]] = Query(None),
+    project_id: Optional[List[uuid.UUID]] = Query(None),
     subject: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db)

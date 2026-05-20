@@ -10,7 +10,7 @@ class EdgeSynthesizer:
     def __init__(self, db: Session):
         self.db = db
 
-    def synthesize(self, project_id: uuid.UUID, entity_ids: List[uuid.UUID], batch_provenance: dict) -> int:
+    def synthesize(self, project_id: uuid.UUID, entity_ids: List[uuid.UUID], batch_provenance: dict, temporal_step: Optional[int] = None) -> int:
         """
         For each pair of entities in the batch, upsert a co-occurrence Relation edge.
         Returns count of edges created/updated.
@@ -28,13 +28,13 @@ class EdgeSynthesizer:
         for i, id_a in enumerate(entity_ids):
             for id_b in entity_ids[i+1:]:
                 # Bidirectional: A -> B and B -> A
-                edges_processed += self._upsert_relation(project_id, id_a, id_b, batch_provenance, now)
-                edges_processed += self._upsert_relation(project_id, id_b, id_a, batch_provenance, now)
+                edges_processed += self._upsert_relation(project_id, id_a, id_b, batch_provenance, now, temporal_step)
+                edges_processed += self._upsert_relation(project_id, id_b, id_a, batch_provenance, now, temporal_step)
 
         return edges_processed
 
     def _upsert_relation(self, project_id: uuid.UUID, from_id: uuid.UUID, to_id: uuid.UUID, 
-                         batch_provenance: dict, timestamp: datetime) -> int:
+                         batch_provenance: dict, timestamp: datetime, temporal_step: Optional[int] = None) -> int:
         """
         Internal helper to upsert a directed relationship between two entities.
         """
@@ -52,6 +52,12 @@ class EdgeSynthesizer:
             existing.strength = min(existing.strength + 0.1, 5.0)
             existing.access_count += 1
             existing.last_accessed_at = timestamp
+            
+            if temporal_step is not None:
+                if existing.temporal_start is None or temporal_step < existing.temporal_start:
+                    existing.temporal_start = temporal_step
+                if existing.temporal_end is None or temporal_step > existing.temporal_end:
+                    existing.temporal_end = temporal_step
             
             # Update provenance (limit size to avoid JSONB bloat)
             prov = existing.provenance or []
@@ -76,7 +82,9 @@ class EdgeSynthesizer:
                 confidence=1.0,
                 provenance=[batch_provenance],
                 access_count=1,
-                last_accessed_at=timestamp
+                last_accessed_at=timestamp,
+                temporal_start=temporal_step,
+                temporal_end=temporal_step
             )
             self.db.add(new_rel)
         

@@ -11,11 +11,13 @@ import os
 import json
 import time
 import httpx
+from datetime import datetime
 
 from src.db.session import get_db
 from src.db.models import Project, EpisodicItem, Assertion, Entity, Relation, ApiKey, DataSource
 
 router = APIRouter()
+
 
 # --- Qdrant Dependency ---
 from src.db.session import get_qdrant # Use centralized dependency
@@ -24,16 +26,47 @@ from src.db.session import get_qdrant # Use centralized dependency
 security = HTTPBasic()
 
 def get_api_key(
-    api_key_header: str = Depends(APIKeyHeader(name="Authorization", auto_error=False)),
+    auth_header: str = Depends(APIKeyHeader(name="Authorization", auto_error=False)),
+    x_api_header: str = Depends(APIKeyHeader(name="X-API-Key", auto_error=False)),
     db: Session = Depends(get_db)
 ) -> ApiKey:
-    if not api_key_header:
-        raise HTTPException(status_code=401, detail="Missing API Key")
-    clean_key = api_key_header.replace("Bearer ", "").strip()
-    key_record = db.query(ApiKey).filter(ApiKey.key == clean_key, ApiKey.is_active == True).first()
-    if not key_record:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
-    return key_record
+    """
+    Look for an API Key in Authorization (Bearer), X-API-Key, 
+    or even as a fallback, allow credentials from Basic Auth if provided.
+    """
+    key_str = auth_header or x_api_header
+    
+    # 1. Standard API Key Logic
+    if key_str:
+        clean_key = key_str.replace("Bearer ", "").strip()
+        # Fallback check: if it looks like "Basic ...", skip to basic auth logic
+        if not key_str.startswith("Basic "):
+            key_record = db.query(ApiKey).filter(ApiKey.key == clean_key, ApiKey.is_active == True).first()
+            if key_record:
+                return key_record
+
+    # 2. Basic Auth Fallback (Admin as Super-User for any project)
+    # Since we can't easily use "verify_admin" as a sub-dependency without logic duplication,
+    # we manually check for Basic Auth here or return 401.
+    if auth_header and auth_header.startswith("Basic "):
+        try:
+            import base64
+            encoded = auth_header.split(" ", 1)[1]
+            decoded = base64.b64decode(encoded).decode("utf-8")
+            user, pwd = decoded.split(":", 1)
+            
+            admin_user = os.getenv("ADMIN_USERNAME", "admin")
+            admin_pass = os.getenv("ADMIN_PASSWORD", "admin")
+            
+            if secrets.compare_digest(user, admin_user) and secrets.compare_digest(pwd, admin_pass):
+                # Return the primary API key or a placeholder for Admin
+                primary = db.query(ApiKey).filter(ApiKey.name == "condensate-primary").first()
+                if primary:
+                    return primary
+        except:
+            pass
+
+    raise HTTPException(status_code=401, detail="Missing or Invalid API Key / Credentials")
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     import os
@@ -69,6 +102,13 @@ def get_stats(db: Session = Depends(get_db)):
     total_keys = db.query(ApiKey).count()
     total_entities = db.query(Entity).count()
     total_relations = db.query(Relation).count()
+    total_consolidations = 0
+    try:
+        from src.synapses.models import ConsolidatedMemory
+        total_consolidations = db.query(ConsolidatedMemory).count()
+    except Exception:
+        db.rollback()
+        pass
     pending_review = db.query(Assertion).filter(Assertion.status == "pending_review").count()
 
     return {
@@ -78,6 +118,7 @@ def get_stats(db: Session = Depends(get_db)):
         "total_keys": total_keys,
         "total_entities": total_entities,
         "total_relations": total_relations,
+        "total_consolidations": total_consolidations,
         "pending_review": pending_review
     }
 
@@ -88,7 +129,7 @@ def get_jobs(limit: int = 100):
     Return the in-memory job run history from the scheduler and MCP background tasks.
     Includes data-source pulls, condensation runs, and maintenance jobs.
     """
-    from src.engine.scheduler import get_job_log
+    from src.engine.job_history import get_job_log
     return {"jobs": get_job_log()[:limit]}
 
 # --- Keys Management ---
@@ -164,10 +205,32 @@ def update_project(project_id: str, data: Dict[str, Any], db: Session = Depends(
     return {"status": "updated"}
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: str, db: Session = Depends(get_db)):
+def delete_project(project_id: str, db: Session = Depends(get_db), qdrant: QdrantClient = Depends(get_qdrant)):
     pid = uuid.UUID(project_id)
     project = db.query(Project).filter(Project.id == pid).first()
     if project:
+        # 1. Delete associated vectors in Qdrant
+        try:
+            from qdrant_client.http import models
+            for collection in ["episodic_chunks", "memories"]:
+                try:
+                    qdrant.delete(
+                        collection_name=collection,
+                        points_selector=models.Filter(
+                            must=[
+                                models.FieldCondition(
+                                    key="project_id",
+                                    match=models.MatchValue(value=str(pid))
+                                )
+                            ]
+                        )
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Warning: Failed to delete project vectors from Qdrant: {e}")
+
+        # 2. Delete from DB (cascades to all other child tables)
         db.delete(project)
         db.commit()
     return {"status": "deleted"}
@@ -532,6 +595,14 @@ def delete_entity(entity_id: str, db: Session = Depends(get_db)):
     eid = uuid.UUID(entity_id)
     entity = db.query(Entity).filter(Entity.id == eid).first()
     if entity:
+        # 1. Null out references in assertions to avoid FK violation (if CASCADE not set)
+        db.query(Assertion).filter(Assertion.subject_entity_id == eid).update({"subject_entity_id": None})
+        db.query(Assertion).filter(Assertion.object_entity_id == eid).update({"object_entity_id": None})
+        
+        # 2. Delete relations involving this entity (dangling entries)
+        from src.db.models import Relation
+        db.query(Relation).filter((Relation.from_id == eid) | (Relation.to_id == eid)).delete()
+        
         db.delete(entity)
         db.commit()
     return {"status": "deleted"}
@@ -576,6 +647,35 @@ def get_learnings(
             "created_at": a.first_seen_at.isoformat()
         }
         for a in assertions
+    ]
+
+@router.get("/consolidations")
+def get_consolidations(
+    limit: int = 100, 
+    project_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    from src.synapses.models import ConsolidatedMemory
+    query = db.query(ConsolidatedMemory)
+    
+    if project_id:
+        try:
+            pid = uuid.UUID(project_id)
+            query = query.filter(ConsolidatedMemory.project_id == pid)
+        except ValueError:
+            pass
+            
+    items = query.order_by(ConsolidatedMemory.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": str(i.id),
+            "content": i.content,
+            "project_id": str(i.project_id),
+            "confidence": i.confidence,
+            "created_at": i.created_at.isoformat(),
+            "evidence_count": len(i.evidence_ids) if i.evidence_ids else 0
+        }
+        for i in items
     ]
 
 @router.patch("/learnings/{assertion_id}")
@@ -702,8 +802,12 @@ def save_llm_configs(data: Dict[str, Any], user: str = Depends(verify_admin)):
     if primary_count > 1:
         raise HTTPException(status_code=400, detail="Only one configuration can be primary.")
     
-    with open(CONFIG_FILE, "w") as f:
-        json.dump({"configs": configs}, f)
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump({"configs": configs}, f, indent=2)
+    except Exception as e:
+        print(f"CRITICAL: Failed to write to {CONFIG_FILE}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to write config file: {e}")
     
     # Update environment variables for the primary one for legacy/system compatibility
     primary = next((c for c in configs if c.get("is_primary")), None)
@@ -713,6 +817,39 @@ def save_llm_configs(data: Dict[str, Any], user: str = Depends(verify_admin)):
         os.environ["LLM_API_KEY"] = primary.get("apiKey", "")
     
     return {"status": "saved", "count": len(configs)}
+
+@router.post("/projects/{project_id}/condense")
+async def manual_condense(project_id: str, db: Session = Depends(get_db)):
+    """Trigger condensation for all episodic memories in a project."""
+    from src.engine.condenser import Condenser
+    try:
+        pid = uuid.UUID(project_id)
+        # Fetch all episodic items for this project
+        items = db.query(EpisodicItem).filter(EpisodicItem.project_id == pid).all()
+        if not items:
+            return {"status": "skipped", "message": "No episodic items found for this project."}
+        
+        condenser = Condenser(db)
+        await condenser.distill(pid, items)
+        return {"status": "success", "count": len(items)}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project UUID")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/projects/{project_id}/consolidate")
+async def manual_consolidate(project_id: str, db: Session = Depends(get_db)):
+    """Trigger the consolidation cycle manually for a project."""
+    from src.synapses.consolidation import MemoryConsolidator
+    try:
+        pid = uuid.UUID(project_id)
+        consolidator = MemoryConsolidator(db)
+        await consolidator.run_consolidation_cycle(pid)
+        return {"status": "success"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project UUID")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/config/llm/test")
 async def test_llm_config(config: Dict[str, Any], user: str = Depends(verify_admin)):
@@ -726,21 +863,85 @@ async def test_llm_config(config: Dict[str, Any], user: str = Depends(verify_adm
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             # Simple chat completion attempt
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "hi"}]
+            }
+            
+            # Adaptive parameter handling for newer OpenAI models (o1, nano, etc.)
+            if any(m in model.lower() for m in ["o1-", "o3-", "nano"]):
+                payload["max_completion_tokens"] = 10
+            else:
+                payload["max_tokens"] = 5
+                
             response = await client.post(
                 f"{base_url}/chat/completions",
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 5
-                },
+                json=payload,
                 headers={"Authorization": f"Bearer {api_key}"}
             )
             response.raise_for_status()
             latency = (time.time() - start_time) * 1000 # ms
             return {"status": "success", "latency": round(latency, 1)}
+    except httpx.HTTPStatusError as e:
+        latency = (time.time() - start_time) * 1000
+        error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
+        return {"status": "error", "error": error_msg, "latency": round(latency, 1)}
     except Exception as e:
         latency = (time.time() - start_time) * 1000
         return {"status": "error", "error": str(e), "latency": round(latency, 1)}
+
+# --- System Config ---
+SYSTEM_CONFIG_FILE = "system_config.json"
+
+@router.get("/config/system")
+def get_system_config():
+    if os.path.exists(SYSTEM_CONFIG_FILE):
+        try:
+            with open(SYSTEM_CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    
+    return {
+        "review_mode": os.getenv("REVIEW_MODE", "manual").lower()
+    }
+
+@router.post("/config/system")
+def save_system_config(data: Dict[str, Any], user: str = Depends(verify_admin)):
+    with open(SYSTEM_CONFIG_FILE, "w") as f:
+        json.dump(data, f)
+    
+    if "review_mode" in data:
+        os.environ["REVIEW_MODE"] = data["review_mode"]
+    
+    return {"status": "saved", "config": data}
+
+# --- Synapse Config ---
+SYNAPSE_CONFIG_FILE = "synapse_config.json"
+
+@router.get("/config/synapse")
+def get_synapse_config():
+    from src.synapses.config import synapse_config
+    # Refresh to ensure we have latest from file
+    synapse_config.refresh()
+    return {
+        "enabled": synapse_config.ENABLED,
+        "learning_rate": synapse_config.LEARNING_RATE,
+        "decay_rate": synapse_config.DECAY_RATE,
+        "prune_threshold": synapse_config.PRUNE_THRESHOLD,
+        "consolidation_threshold": synapse_config.CONSOLIDATION_THRESHOLD,
+        "decay_interval_hours": synapse_config.DECAY_INTERVAL_HOURS
+    }
+
+@router.post("/config/synapse")
+def save_synapse_config(data: Dict[str, Any], user: str = Depends(verify_admin)):
+    with open(SYNAPSE_CONFIG_FILE, "w") as f:
+        json.dump(data, f)
+    
+    from src.synapses.config import synapse_config
+    synapse_config.refresh()
+    
+    return {"status": "saved", "config": data}
 
 # --- Assertion Review Queue ---
 @router.get("/review/assertions/pending")

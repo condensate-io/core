@@ -16,6 +16,12 @@ fastembed
 apscheduler
 beautifulsoup4
 transformers
-torch --extra-index-url https://download.pytorch.org/whl/cpu
+# CUDA 12.4 PyTorch — GPU-accelerated GLiNER NER inference
+torch --extra-index-url https://download.pytorch.org/whl/cu124
+torchvision --extra-index-url https://download.pytorch.org/whl/cu124
+# GPU-accelerated ONNX Runtime for fastembed embeddings
+onnxruntime-gpu
 tenacity
 gliner
+networkx
+python-louvain
