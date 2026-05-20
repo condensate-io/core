@@ -1,14 +1,33 @@
+"""
+Tenant isolation and cascade deletion tests.
+
+Fully mocked — no real database or Qdrant connections required.
+Works in CI without any external services.
+"""
 import pytest
 import uuid
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
+
 from src.db.models import Project, ApiKey, EpisodicItem, Entity
 
 
-def _make_mock_db():
-    """Create a mock DB session with pre-configured query chains."""
-    mock = MagicMock()
-    return mock
+@asynccontextmanager
+async def _noop_lifespan(app: FastAPI):
+    """Replacement lifespan that skips all init (DB, Qdrant, NER, etc.)."""
+    yield
+
+
+def _make_app():
+    """
+    Import the real app and swap its lifespan to the no-op version
+    so TestClient never triggers init_db / Qdrant / NER warmup.
+    """
+    from main import app
+    app.router.lifespan_context = _noop_lifespan
+    return app
 
 
 def test_tenant_isolation_and_cascade():
@@ -31,118 +50,102 @@ def test_tenant_isolation_and_cascade():
     ak2.project_id = p2_id
 
     # --- Build mock DB session ---
-    mock_db = _make_mock_db()
+    mock_db = MagicMock()
+    mock_qdrant = MagicMock()
 
-    # Track which API key is being looked up so we can return the right one
-    def _resolve_api_key(stmt):
-        """Return the correct ApiKey mock based on the query context."""
-        result = MagicMock()
-        # We inspect the compiled SQL or just use a simple call-order approach
-        return result
-
-    # We'll use a side_effect on the get_db dependency to yield our mock
     def mock_get_db():
         yield mock_db
-
-    mock_qdrant = MagicMock()
 
     def mock_get_qdrant():
         yield mock_qdrant
 
-    # --- Patch startup hooks and import app ---
-    with patch("main.start_scheduler"), patch("main.init_db"):
-        from main import app
-        from src.db.session import get_db, get_qdrant
+    app = _make_app()
 
-        app.dependency_overrides[get_db] = mock_get_db
-        app.dependency_overrides[get_qdrant] = mock_get_qdrant
+    from src.db.session import get_db, get_qdrant
+    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_qdrant] = mock_get_qdrant
 
-        client = TestClient(app)
+    client = TestClient(app)
 
-        try:
-            # ---- 1. Test scoped ingestion via Key A ----
-            # Mock: looking up API key returns ak1
+    try:
+        # ---- 1. Test scoped ingestion via Key A ----
+        mock_db.execute.return_value.scalar_one_or_none.return_value = ak1
+
+        with patch("src.server.v1_api.IngressAgent") as mock_ingress_cls:
+            mock_ingress = MagicMock()
+            mock_item = MagicMock(spec=EpisodicItem)
+            mock_item.id = uuid.uuid4()
+            mock_item.project_id = p1_id
+            mock_ingress.process_memory.return_value = mock_item
+            mock_ingress_cls.return_value = mock_ingress
+
+            resp = client.post(
+                "/api/v1/episodic",
+                json={
+                    "project_id": str(p1_id),
+                    "text": "Secret project details A",
+                    "source": "api",
+                },
+                headers={"Authorization": f"Bearer {ak1.key}"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "stored"
+
+        # ---- 2. Test scoped retrieval: Key B sees project B, Key A sees project A ----
+        with patch("src.server.router_api.MemoryRouter") as mock_router_cls:
+            mock_mr = MagicMock()
+
+            async def mock_route(project_id, query, **kwargs):
+                return {
+                    "answer": f"Answer for {project_id}",
+                    "sources": [],
+                    "strategy": "recall",
+                }
+
+            mock_mr.route_and_retrieve = mock_route
+            mock_router_cls.return_value = mock_mr
+
+            # Retrieve with Key B → should scope to p2
+            mock_db.execute.return_value.scalar_one_or_none.return_value = ak2
+            resp_b = client.post(
+                "/api/v1/memory/retrieve",
+                json={"query": "Get info"},
+                headers={"Authorization": f"Bearer {ak2.key}"},
+            )
+            assert resp_b.status_code == 200
+            assert resp_b.json()["answer"] == f"Answer for {p2_id}"
+
+            # Retrieve with Key A → should scope to p1
             mock_db.execute.return_value.scalar_one_or_none.return_value = ak1
+            resp_a = client.post(
+                "/api/v1/memory/retrieve",
+                json={"query": "Get info"},
+                headers={"Authorization": f"Bearer {ak1.key}"},
+            )
+            assert resp_a.status_code == 200
+            assert resp_a.json()["answer"] == f"Answer for {p1_id}"
 
-            with patch("src.server.v1_api.IngressAgent") as mock_ingress_cls:
-                mock_ingress = MagicMock()
-                mock_item = MagicMock(spec=EpisodicItem)
-                mock_item.id = uuid.uuid4()
-                mock_item.project_id = p1_id
-                mock_ingress.process_memory.return_value = mock_item
-                mock_ingress_cls.return_value = mock_ingress
+        # ---- 3. Test cascade delete ----
+        mock_project = MagicMock(spec=Project)
+        mock_project.id = p1_id
+        mock_project.name = "Project-A"
 
-                resp = client.post(
-                    "/api/v1/episodic",
-                    json={
-                        "project_id": str(p1_id),
-                        "text": "Secret project details A",
-                        "source": "api",
-                    },
-                    headers={"Authorization": f"Bearer {ak1.key}"},
-                )
-                assert resp.status_code == 200
-                assert resp.json()["status"] == "stored"
+        mock_db.reset_mock()
+        mock_qdrant.reset_mock()
 
-            # ---- 2. Test scoped retrieval: Key B sees project B, Key A sees project A ----
-            with patch("src.server.router_api.MemoryRouter") as mock_router_cls:
-                mock_mr = MagicMock()
+        # Admin delete: project lookup returns the project
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_project
 
-                async def mock_route(project_id, query):
-                    return {
-                        "answer": f"Answer for {project_id}",
-                        "sources": [],
-                        "strategy": "recall",
-                    }
+        with patch("src.server.admin.verify_admin", return_value="admin"):
+            resp_delete = client.delete(
+                f"/api/admin/projects/{p1_id}",
+                headers={"Authorization": "Basic YWRtaW46YWRtaW4="},
+            )
+            assert resp_delete.status_code == 200
+            assert resp_delete.json()["status"] == "deleted"
 
-                mock_mr.route_and_retrieve = mock_route
-                mock_router_cls.return_value = mock_mr
+            # Qdrant delete should be called for both collections
+            assert mock_qdrant.delete.call_count == 2
 
-                # Retrieve with Key B → should scope to p2
-                mock_db.execute.return_value.scalar_one_or_none.return_value = ak2
-                resp_b = client.post(
-                    "/api/v1/memory/retrieve",
-                    json={"query": "Get info"},
-                    headers={"Authorization": f"Bearer {ak2.key}"},
-                )
-                assert resp_b.status_code == 200
-                assert resp_b.json()["answer"] == f"Answer for {p2_id}"
-
-                # Retrieve with Key A → should scope to p1
-                mock_db.execute.return_value.scalar_one_or_none.return_value = ak1
-                resp_a = client.post(
-                    "/api/v1/memory/retrieve",
-                    json={"query": "Get info"},
-                    headers={"Authorization": f"Bearer {ak1.key}"},
-                )
-                assert resp_a.status_code == 200
-                assert resp_a.json()["answer"] == f"Answer for {p1_id}"
-
-            # ---- 3. Test cascade delete ----
-            # Mock: project lookup returns a project, then deletion cascades
-            mock_project = MagicMock(spec=Project)
-            mock_project.id = p1_id
-            mock_project.name = "Project-A"
-
-            # Reset mock_db call tracking for the delete phase
-            mock_db.reset_mock()
-            mock_qdrant.reset_mock()
-
-            # The admin delete endpoint needs to find the project
-            mock_db.execute.return_value.scalar_one_or_none.return_value = mock_project
-            # For cascade queries (episodic items, entities, etc.) return empty lists
-            mock_db.execute.return_value.scalars.return_value.all.return_value = []
-
-            with patch("src.server.admin.verify_admin", return_value="admin"):
-                resp_delete = client.delete(
-                    f"/api/admin/projects/{p1_id}",
-                    headers={"Authorization": "Basic YWRtaW46YWRtaW4="},
-                )
-                assert resp_delete.status_code == 200
-                assert resp_delete.json()["status"] == "deleted"
-
-                # Qdrant delete should be called for both collections
-                assert mock_qdrant.delete.call_count == 2
-
-        finally:
-            app.dependency_overrides.clear()
+    finally:
+        app.dependency_overrides.clear()
