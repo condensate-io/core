@@ -40,8 +40,10 @@ class LangExtract:
                     bundle.policies.append(ExtractedPolicy(
                         trigger="general_context", # Inferred
                         rule=statement,
-                        priority=l.get("confidence", 0.5),
-                        evidence=[{"episodic_id": str(item.id), "quote": l.get("rich_description")}]
+                        priority=l.get("confidence", 0.7),
+                        scope="project", # Default for extracted context
+                        confidence=l.get("confidence", 0.8),
+                        evidence=[{"episodic_id": str(item.id), "quote": l.get("rich_description") or "Derived learning"}]
                     ))
                 else:
                     # Generic Assertion
@@ -49,18 +51,20 @@ class LangExtract:
                         subject="User",
                         predicate="has_preference_or_fact",
                         object=statement,
-                        confidence=l.get("confidence", 0.5),
-                        evidence=[{"episodic_id": str(item.id), "quote": l.get("rich_description")}]
+                        confidence=l.get("confidence", 0.8),
+                        polarity=1,
+                        evidence=[{"episodic_id": str(item.id), "quote": l.get("rich_description") or "Derived preference"}]
                     ))
 
             # 2. Extract Triplets -> Assertions
             triplets = await self.extract_triplets(item.text)
             for t in triplets:
                 bundle.assertions.append(ExtractedAssertion(
-                    subject=t.get("subject"),
-                    predicate=t.get("predicate"),
-                    object=t.get("object"),
+                    subject=t.get("subject") or "Unknown",
+                    predicate=t.get("predicate") or "unknown_relation",
+                    object=t.get("object") or "Unknown",
                     confidence=0.8, # Default for direct extraction
+                    polarity=1,
                     evidence=[{"episodic_id": str(item.id), "quote": "Triples extraction"}]
                 ))
             

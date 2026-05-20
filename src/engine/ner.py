@@ -3,17 +3,35 @@ import logging
 
 logger = logging.getLogger("NER")
 
+
+def _resolve_device() -> str:
+    """Pick the best available compute device for PyTorch models."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device = "cuda"
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_mb = torch.cuda.get_device_properties(0).total_mem // (1024 * 1024)
+            logger.info(f"NER device: CUDA ({gpu_name}, {vram_mb}MB VRAM)")
+            return device
+    except Exception:
+        pass
+    logger.info("NER device: CPU (no CUDA available)")
+    return "cpu"
+
+
 class GLiNERWrapper:
     """
     Singleton NER engine backed by GLiNER (Generalist Lightweight NER).
     
     Model: urchade/gliner_small-v2
-      - efficient CPU inference
-      - schema-conditioned (we pass target labels at runtime)
+      - GPU-accelerated inference when CUDA is available
+      - Falls back to CPU transparently
     """
 
     _instance = None
     _model = None
+    _device = None
     
     # Default labels matching our ontology
     DEFAULT_LABELS = [
@@ -32,9 +50,12 @@ class GLiNERWrapper:
     def _load_model(self):
         try:
             from gliner import GLiNER
-            # Load model (downloads if needed)
+            self._device = _resolve_device()
+            # Load model and move to GPU if available
             self._model = GLiNER.from_pretrained(self.MODEL_ID)
-            logger.info(f"GLiNER loaded: {self.MODEL_ID}")
+            if self._device == "cuda":
+                self._model = self._model.to(self._device)
+            logger.info(f"GLiNER loaded: {self.MODEL_ID} on {self._device}")
         except ImportError:
             logger.warning("GLiNER library not installed. NER disabled. (pip install gliner)")
             self._model = None

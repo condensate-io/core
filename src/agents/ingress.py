@@ -12,12 +12,28 @@ from src.db.schemas import EpisodicItemCreate
 
 logger = logging.getLogger("IngressAgent")
 
+
+def _get_embedding_providers() -> List[str]:
+    """Return ONNX execution providers, preferring GPU."""
+    try:
+        import onnxruntime as ort
+        available = ort.get_available_providers()
+        if "CUDAExecutionProvider" in available:
+            logger.info("Embedding: Using CUDAExecutionProvider (GPU)")
+            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    except ImportError:
+        pass
+    logger.info("Embedding: Using CPUExecutionProvider")
+    return ["CPUExecutionProvider"]
+
+
 class IngressAgent:
     def __init__(self, db: Session, qdrant: QdrantClient):
         self.db = db
         self.qdrant = qdrant
-        # Initialize embedding model (using fastembed as per requirements)
-        self.embedding_model = TextEmbedding()
+        # Initialize embedding model with GPU acceleration if available
+        providers = _get_embedding_providers()
+        self.embedding_model = TextEmbedding(providers=providers)
 
     def process_memory(self, data: EpisodicItemCreate) -> EpisodicItem:
         """

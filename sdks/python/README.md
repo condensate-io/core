@@ -112,6 +112,40 @@ client.add_item(EpisodicItem(
 ))
 ```
 
+### Orchestration Lifecycle Hooks (Symphony Orchestration)
+
+To support stateful orchestration in Symphony-like multi-agent networks, the SDK exposes the `CondensateOrchestrationHooks` helper. It maps lifecycle transitions to standard episodic memories, utilizing the `/api/v1/episodic` endpoint and a robust metadata-driven approach:
+
+```python
+from condensate import CondensateClient, CondensateOrchestrationHooks
+
+client = CondensateClient(base_url="http://localhost:8000", api_key="sk-your-key")
+hooks = CondensateOrchestrationHooks(client)
+
+# When an agent execution session starts
+hooks.on_agent_started(task_id="linear-ticket-101", agent_id="agent-developer-1", agent_role="developer")
+
+# Checkpoint/Suspend state for fault-tolerance or hand-offs
+state_dump = {
+    "current_file": "src/server/v1_api.py",
+    "cursor_position": 142,
+    "progress_percent": 65.5
+}
+hooks.on_agent_suspended(task_id="linear-ticket-101", agent_id="agent-developer-1", state_dump=state_dump)
+
+# Resume execution
+hooks.on_agent_resumed(task_id="linear-ticket-101", agent_id="agent-developer-1")
+
+# If an agent encounters a fatal error / crashes
+hooks.on_agent_crashed(task_id="linear-ticket-101", agent_id="agent-developer-1", error="Database connection timeout", state_dump=state_dump)
+
+# On successful task completion
+hooks.on_agent_completed(task_id="linear-ticket-101", agent_id="agent-developer-1", final_findings="All security patches applied successfully.")
+```
+
+#### Under the Hood: Metadata-Driven Design
+Every event emitted by `CondensateOrchestrationHooks` is sent to the `/api/v1/episodic` endpoint with `source` set to `"orchestrator"` and the payload's `metadata` dictionary populated with `event_type`, `task_id`, and `agent_id`. Because Condensate automatically scopes all queries and retrievals to the API key's project, lifecycle states are 100% tenant-isolated, allowing clean, trace-based analysis of multi-agent execution lifecycles.
+
 ## CLI
 
 The package ships a `condensate` CLI:

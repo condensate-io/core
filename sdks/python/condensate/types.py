@@ -4,7 +4,7 @@ from datetime import datetime
 import uuid
 
 class EpisodicItem(BaseModel):
-    project_id: uuid.UUID
+    project_id: Optional[uuid.UUID] = None
     source: str
     text: str
     metadata: Dict[str, Any] = Field(default_factory=dict)

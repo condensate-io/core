@@ -7,26 +7,42 @@ from .models import Base
 # Database URL from environment or default to local docker
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://condensate:password@localhost:5432/condensate_db")
 
+import json
+import uuid
+
+def _json_serializer(obj):
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+def _pool_kw():
+    """Tune QueuePool for concurrent API + MCP + background work (e.g. parallel OmniSim)."""
+    return {
+        "pool_size": int(os.getenv("SQLALCHEMY_POOL_SIZE", "30")),
+        "max_overflow": int(os.getenv("SQLALCHEMY_MAX_OVERFLOW", "50")),
+        "pool_timeout": int(os.getenv("SQLALCHEMY_POOL_TIMEOUT", "60")),
+        "pool_recycle": int(os.getenv("SQLALCHEMY_POOL_RECYCLE", "1800")),
+        "pool_pre_ping": True,
+    }
+
 engine = create_engine(
     DATABASE_URL,
-    pool_size=20,
-    max_overflow=30,
-    pool_timeout=30,
-    pool_pre_ping=True
+    **_pool_kw(),
+    json_serializer=lambda obj: json.dumps(obj, default=_json_serializer)
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     """
     Initialize the database tables and apply incremental schema migrations.
-
-    create_all() only creates tables that don't exist yet — it will NOT add
-    new columns to existing tables.  The _apply_migrations() call below runs
-    idempotent ALTER TABLE … ADD COLUMN IF NOT EXISTS statements so that any
-    columns added to the SQLAlchemy models after the initial table creation are
-    automatically present on startup (including after a compose rebuild against
-    a persistent volume).
     """
+    # Import all models to register them with Base.metadata
+    from . import models
+    try:
+        from src.synapses import models as synapse_models
+    except ImportError:
+        pass
+        
     Base.metadata.create_all(bind=engine)
     _apply_migrations()
 
@@ -51,6 +67,27 @@ def _apply_migrations():
         "ALTER TABLE assertions ALTER COLUMN status SET DEFAULT 'pending_review'",
         # index (CREATE INDEX IF NOT EXISTS is supported in Postgres 9.5+)
         "CREATE INDEX IF NOT EXISTS ix_assertions_status ON assertions (status)",
+        # --- OmniSim Temporal Tracking (Phase 1) ---
+        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS temporal_step INTEGER",
+        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE relations ADD COLUMN IF NOT EXISTS temporal_start INTEGER",
+        "ALTER TABLE relations ADD COLUMN IF NOT EXISTS temporal_end INTEGER",
+        "ALTER TABLE relations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb",
+        # --- FK CASCADE / SET NULL (fk_001) ---
+        """
+        DO $$ 
+        BEGIN 
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'assertions_subject_entity_id_fkey') THEN 
+                ALTER TABLE assertions DROP CONSTRAINT assertions_subject_entity_id_fkey; 
+            END IF; 
+            ALTER TABLE assertions ADD CONSTRAINT assertions_subject_entity_id_fkey FOREIGN KEY (subject_entity_id) REFERENCES entities(id) ON DELETE SET NULL;
+
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'assertions_object_entity_id_fkey') THEN 
+                ALTER TABLE assertions DROP CONSTRAINT assertions_object_entity_id_fkey; 
+            END IF; 
+            ALTER TABLE assertions ADD CONSTRAINT assertions_object_entity_id_fkey FOREIGN KEY (object_entity_id) REFERENCES entities(id) ON DELETE SET NULL;
+        END $$;
+        """
     ]
 
     with engine.connect() as conn:

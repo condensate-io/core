@@ -116,6 +116,40 @@ interface RetrieveResult {
 }
 ```
 
+### Orchestration Lifecycle Hooks (Symphony Orchestration)
+
+To support stateful orchestration in Symphony-like multi-agent networks, the TS SDK exposes the `CondensateOrchestrationHooks` class:
+
+```typescript
+import { CondensatesClient, CondensateOrchestrationHooks } from '@condensate/sdk';
+
+const client = new CondensatesClient('http://localhost:8000', 'sk-your-key');
+const hooks = new CondensateOrchestrationHooks(client);
+
+// When an agent execution session starts
+await hooks.onAgentStarted('linear-ticket-101', 'agent-developer-1', 'developer');
+
+// Checkpoint/Suspend state for fault-tolerance or hand-offs
+const stateDump = {
+  current_file: 'src/server/v1_api.py',
+  cursor_position: 142,
+  progress_percent: 65.5
+};
+await hooks.onAgentSuspended('linear-ticket-101', 'agent-developer-1', stateDump);
+
+// Resume execution
+await hooks.onAgentResumed('linear-ticket-101', 'agent-developer-1');
+
+// If an agent encounters a fatal error / crashes
+await hooks.onAgentCrashed('linear-ticket-101', 'agent-developer-1', 'Database connection timeout', stateDump);
+
+// On successful task completion
+await hooks.onAgentCompleted('linear-ticket-101', 'agent-developer-1', 'All security patches applied successfully.');
+```
+
+#### Under the Hood: Metadata-Driven Design
+Every event emitted by `CondensateOrchestrationHooks` is sent to the `/api/v1/episodic` endpoint with `source` set to `"orchestrator"` and the payload's `metadata` dictionary populated with `event_type`, `task_id`, and `agent_id`. Since Condensate scopes queries to the API key's project, lifecycle states are 100% tenant-isolated, enabling trace-based analysis of multi-agent execution lifecycles.
+
 ## Building from Source
 
 ```bash

@@ -23,24 +23,29 @@ Your job is to read a raw episodic memory item and extract structured knowledge 
 Output MUST be a valid JSON object matching the following schema.
 
 Schema Definition:
-- entities: List of canonical entities (People, Organizations, Systems, Concepts) mentioned.
-- assertions: List of factual claims. Subject/Object should be entity references or literals.
-- events: Significant occurrences (meetings, decisions, incidents) if any.
-- policies: Operational rules or constraints to remember (e.g. "Do not use library X").
+- entities: List of objects with [name, type, aliases, confidence]
+- assertions: List of factual claims with:
+    - subject: object ({{ "type": "entity", "name": "name" }} or {{ "type": "literal", "value": "value" }})
+    - predicate: string (the relationship verb)
+    - object: object ({{ "type": "entity", "name": "name" }} or {{ "type": "literal", "value": "value" }})
+    - polarity: integer (1 for affirmative, -1 for negative)
+    - confidence: float (0.0 to 1.0)
+- events: Significant occurrences [type, summary, confidence]
+- policies: Operational rules [trigger, rule, priority, scope, confidence]
 
-Rules:
-1. Be conservative. Only extract what is explicitly stated or strongly implied.
-2. Canonicalize names where possible (e.g., "Bob" -> "Bob Smith", "the db" -> "Primary Database").
-3. Polarity: 1 for affirmative ("is"), -1 for negative ("is not").
-4. Confidence: 0.0 to 1.0 based on how clear the text is.
+Onboard Precision Guidelines (Determinism):
+1. Use high-signal verbs for predicates whenever possible: 
+   - Actions: executed, triggered, stabilized, bought, sold, implemented, failed, succeeded, notified.
+   - States: owns, belongs_to, part_of, located_at, prefers, knows, depends_on, manages.
+2. Be conservative. If an action is not explicitly stated, do not hallucinate a relationship.
+3. If the input contains strategic orders or market anomalies (e.g. "sudden price spike", "massive buy"), ensure these are captured as assertions or events.
+4. Respond ONLY with raw JSON.
 
 Input Text:
 {text}
 
 Input Metadata:
 {metadata}
-
-Respond ONLY with the JSON.
 """
 
 class MemoryExtractor:
@@ -76,7 +81,15 @@ class MemoryExtractor:
                 elif cleaned_content.startswith("```"):
                      cleaned_content = cleaned_content.removeprefix("```").removesuffix("```").strip()
 
-                data = json.loads(cleaned_content)
+                # Robust JSON parsing
+                try:
+                    data = json.loads(cleaned_content)
+                except json.JSONDecodeError as jde:
+                    # Try advanced cleanup
+                    print(f"[MemoryExtractor] Initial JSON parse failed: {jde}. Attempting repair...")
+                    repaired = self._cleanup_json(cleaned_content)
+                    data = json.loads(repaired)
+
                 # Transform raw dict to Pydantic models with correct evidence
                 bundle = ExtractionBundle(
                     entities=[ExtractedEntity(**e) for e in data.get("entities", [])],
@@ -90,6 +103,25 @@ class MemoryExtractor:
                 results.append(ExtractionBundle())
 
         return results
+
+    def _cleanup_json(self, raw_str: str) -> str:
+        """Fixes common LLM JSON syntax errors."""
+        import re
+        
+        # 1. Replace single quotes around property names with double quotes
+        # Note: This is a bit unsafe but often works for simple objects
+        fixed = re.sub(r"'(\w+)':", r'"\1":', raw_str)
+        
+        # 2. Remove trailing commas in objects and arrays
+        fixed = re.sub(r",\s*([\}\]])", r"\1", fixed)
+        
+        # 3. Ensure balanced braces/brackets (simple append)
+        if fixed.count("{") > fixed.count("}"):
+            fixed += "}" * (fixed.count("{") - fixed.count("}"))
+        if fixed.count("[") > fixed.count("]"):
+            fixed += "]" * (fixed.count("[") - fixed.count("]"))
+            
+        return fixed
 
     def _enrich_assertion(self, raw: dict, item_id: str):
         # Add source evidence if missing (LLM might not populate it strictly)

@@ -76,7 +76,7 @@ from src.server.router_api import router as memory_router
 app.include_router(memory_router, prefix="/api/v1", tags=["memory"])
 
 from src.server.v1_api import router as v1_router
-app.include_router(v1_router) # already has /v1 prefix
+app.include_router(v1_router, prefix="/api") # Mounting /v1 router under /api -> /api/v1
 
 from src.server.ingest_api import router as ingest_router
 app.include_router(ingest_router)

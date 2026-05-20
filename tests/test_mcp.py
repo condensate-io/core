@@ -1,11 +1,22 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
-from main import app
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def _noop_lifespan(app: FastAPI):
+    yield
+
+def _make_app():
+    from main import app
+    app.router.lifespan_context = _noop_lifespan
+    return app
+
+client = TestClient(_make_app())
+
 from src.db.models import ApiKey, Project
 import uuid
-
-client = TestClient(app)
 
 def test_mcp_list_tools(db_session, project):
     # Public endpoint
@@ -62,7 +73,7 @@ def test_mcp_tool_call_store_memory(db_session, project):
 def override_dependency(db_session):
     from src.db.session import get_db, get_qdrant
     mock_qdrant = MagicMock()
-    app.dependency_overrides[get_db] = lambda: db_session
-    app.dependency_overrides[get_qdrant] = lambda: mock_qdrant
+    client.app.dependency_overrides[get_db] = lambda: db_session
+    client.app.dependency_overrides[get_qdrant] = lambda: mock_qdrant
     yield
-    app.dependency_overrides = {}
+    client.app.dependency_overrides = {}

@@ -25,14 +25,39 @@ Desktop.ini
 .idea/
 *.swp
 
+# Agent / IDE scaffolding (local mirror from AgentInstructions hub; do not commit)
+# Source of truth: AgentInstructions/Condensates/ and AgentInstructions/_meta/
+.cursor/
+.github/agents/
+.github/copilot-instructions.md
+antigravity/
+AGENT_LINK.md
+AGENTS.md
+SKILL_MAP.md
+tasks.md
+learnings.md
+tests/
+prompts/
+docs/
+scratch/
+custom_scripts/
+scripts/
+CUDA_DRIVER_*
+
 # Docker
 docker-data/
+llm_config.json
+mock_omnisim_run.py
+repro_hang.py
+start.sh
+verify_imports.py
 
 # Project Specific
 data/
 qdrant_storage/
 uploads/
 localmemcp_data/
+troubleshooting/
 *.sqlite
 *.sqlite3
 *.log
@@ -50,4 +75,11 @@ target/
 .cache/
 *.egg-info/
 .env.*
-project_website/*
+project_website/
+docs/omnisim.md
+tests/test_omnisim_scenarios.py
+docs/mcp.md
+docs/api.md
+docs/llm.md
+docs/mcp.md
+docs/mcp.md

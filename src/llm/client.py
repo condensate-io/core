@@ -18,28 +18,103 @@ def _get_semaphore():
 
 class LLMClient:
     def __init__(self):
-        # Default to localhost ollama if not set
+        self._load_config()
+
+    def _load_config(self):
+        import json
+        config_path = "llm_config.json"
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    data = json.load(f)
+                    configs = data.get("configs", [])
+                    # Find primary active config
+                    primary = next((c for c in configs if c.get("is_primary") and c.get("is_active")), None)
+                    if not primary:
+                        # Fallback to any active config
+                        primary = next((c for c in configs if c.get("is_active")), None)
+                    
+                    if primary:
+                        self.base_url = primary.get("baseUrl")
+                        self.api_key = primary.get("apiKey")
+                        self.model = primary.get("model")
+                        return
+                    
+                    # Legacy support for old flat structure if it exists
+                    if "baseUrl" in data:
+                        self.base_url = data.get("baseUrl")
+                        self.api_key = data.get("apiKey")
+                        self.model = data.get("model")
+                        return
+            except Exception as e:
+                logger.error(f"Failed to load llm_config.json: {e}")
+
+        # Default to env vars or defaults
         self.base_url = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
         self.api_key = os.getenv("LLM_API_KEY", "ollama")
-        self.model = os.getenv("LLM_MODEL", "llama3")
+        self.model = os.getenv("LLM_MODEL", "phi3")
+
+    @staticmethod
+    def get_active_config() -> Dict[str, Any]:
+        import json
+        config_path = "llm_config.json"
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    data = json.load(f)
+                    configs = data.get("configs", [])
+                    primary = next((c for c in configs if c.get("is_primary") and c.get("is_active")), None)
+                    if not primary:
+                        primary = next((c for c in configs if c.get("is_active")), None)
+                    if primary:
+                        return primary
+                    
+                    if "baseUrl" in data:
+                        return data # old format fallback
+            except:
+                pass
         
-    @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3))
+        return {
+            "baseUrl": os.getenv("LLM_BASE_URL", "http://localhost:11434/v1"),
+            "apiKey": os.getenv("LLM_API_KEY", "ollama"),
+            "model": os.getenv("LLM_MODEL", "phi3")
+        }
+
+    @retry(wait=wait_exponential(multiplier=2, min=4, max=30), stop=stop_after_attempt(5))
     async def generate(self, prompt: str, system_prompt: str = "You are a helpful assistant.") -> str:
+        # Reload config before each call to ensure we use latest settings saved via admin
+        self._load_config()
         sem = _get_semaphore()
         async with sem:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 try:
+                    payload = {
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                    
+                    is_openai = "openai.com" in self.base_url.lower()
+                    is_o_model = any(m in self.model.lower() for m in ["o1-", "o3-", "nano"])
+                    
+                    if is_openai:
+                        # OpenAI uses response_format for JSON mode
+                        payload["response_format"] = {"type": "json_object"}
+                        # O-models (o1, o3, nano) use 'developer' role and don't support temperature
+                        if is_o_model:
+                            payload["messages"][0]["role"] = "developer"
+                        else:
+                            payload["temperature"] = 0.0
+                    else:
+                        # Ollama-style defaults
+                        payload["format"] = "json"
+                        payload["temperature"] = 0.0
+                        
                     response = await client.post(
                         f"{self.base_url}/chat/completions",
-                        json={
-                            "model": self.model,
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": prompt}
-                            ],
-                            "format": "json",
-                            "temperature": 0.0
-                        },
+                        json=payload,
                         headers={"Authorization": f"Bearer {self.api_key}"}
                     )
                     response.raise_for_status()

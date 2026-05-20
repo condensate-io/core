@@ -7,20 +7,18 @@ The Edge API provides a structured interface for developers to build application
 
 ---
 
-## 1. Episodic Store
-Access the raw, immutable history of ingested events.
+## 1. Projects
+Manage isolation scopes for simulation graphs.
 
-### `GET /episodic`
-List raw memories with optional filtering.
+### `POST /projects`
+Create a new project.
 
-**Query Parameters:**
-- `project_id` (UUID): Filter by project scope.
-- `source` (string): Filter by source type (e.g., `chat`, `github`).
-- `limit` (int): Max records (default 100).
+### `GET /projects`
+List all active projects. Often used for connection validation.
 
 ---
 
-## 2. Learning Graph
+## 2. Episodic Store
 Inspect canonical entities and synthesized facts.
 
 ### `GET /graph/entities`
