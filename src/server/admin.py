@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -41,7 +42,9 @@ def get_api_key(
         clean_key = key_str.replace("Bearer ", "").strip()
         # Fallback check: if it looks like "Basic ...", skip to basic auth logic
         if not key_str.startswith("Basic "):
-            key_record = db.query(ApiKey).filter(ApiKey.key == clean_key, ApiKey.is_active == True).first()
+            key_record = db.execute(
+                select(ApiKey).where(ApiKey.key == clean_key, ApiKey.is_active == True)
+            ).scalar_one_or_none()
             if key_record:
                 return key_record
 
@@ -60,7 +63,9 @@ def get_api_key(
             
             if secrets.compare_digest(user, admin_user) and secrets.compare_digest(pwd, admin_pass):
                 # Return the primary API key or a placeholder for Admin
-                primary = db.query(ApiKey).filter(ApiKey.name == "condensate-primary").first()
+                primary = db.execute(
+                    select(ApiKey).where(ApiKey.name == "condensate-primary")
+                ).scalar_one_or_none()
                 if primary:
                     return primary
         except:
