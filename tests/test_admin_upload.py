@@ -2,9 +2,19 @@ import os
 import shutil
 import pytest
 from fastapi.testclient import TestClient
-from main import app
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
-client = TestClient(app)
+@asynccontextmanager
+async def _noop_lifespan(app: FastAPI):
+    yield
+
+def _make_app():
+    from main import app
+    app.router.lifespan_context = _noop_lifespan
+    return app
+
+client = TestClient(_make_app())
 
 # Use a temporary directory for uploads during tests to avoid polluting the workspace
 @pytest.fixture(autouse=True)
