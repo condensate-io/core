@@ -132,6 +132,8 @@ class Condenser:
             
             # Seed our fact list with L3 findings
             extracted_facts.extend(det_result.get("facts", []))
+            # Merge deterministic entities back into the candidate pool for canonicalization
+            all_candidate_entities.extend(det_result.get("entities", []))
             if det_result.get("condensed"):
                 extracted_facts.append({
                     "subject": "Conversation Batch",
