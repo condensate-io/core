@@ -73,7 +73,7 @@ def test_mcp_tool_call_store_memory(db_session, project):
 def override_dependency(db_session):
     from src.db.session import get_db, get_qdrant
     mock_qdrant = MagicMock()
-    app.dependency_overrides[get_db] = lambda: db_session
-    app.dependency_overrides[get_qdrant] = lambda: mock_qdrant
+    client.app.dependency_overrides[get_db] = lambda: db_session
+    client.app.dependency_overrides[get_qdrant] = lambda: mock_qdrant
     yield
-    app.dependency_overrides = {}
+    client.app.dependency_overrides = {}

@@ -71,7 +71,8 @@ def test_tenant_isolation_and_cascade():
         # ---- 1. Test scoped ingestion via Key A ----
         mock_db.execute.return_value.scalar_one_or_none.return_value = ak1
 
-        with patch("src.server.v1_api.IngressAgent") as mock_ingress_cls:
+        with patch("src.server.v1_api.IngressAgent") as mock_ingress_cls, \
+             patch("src.server.v1_api._condense_project_background") as mock_bg:
             mock_ingress = MagicMock()
             mock_item = MagicMock(spec=EpisodicItem)
             mock_item.id = uuid.uuid4()

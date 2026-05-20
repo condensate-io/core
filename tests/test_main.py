@@ -8,6 +8,9 @@ def test_app_startup_shutdown():
     Test that the application starts up and shuts down correctly.
     This verifies that the lifespan context manager runs without errors.
     """
+    from main import lifespan
+    app.router.lifespan_context = lifespan
+    
     # We need to mock start_scheduler and init_db to avoid side effects
     # and to ensure we are only testing the wiring in main.py
     with patch("main.start_scheduler") as mock_start, \
