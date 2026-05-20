@@ -75,7 +75,7 @@ target/
 .cache/
 *.egg-info/
 .env.*
-project_website/*
+project_website/
 docs/omnisim.md
 tests/test_omnisim_scenarios.py
 docs/mcp.md
