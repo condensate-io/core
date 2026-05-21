@@ -147,7 +147,7 @@ jobs:
           cd sdks/rust
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
           for i in {1..3}; do
-            OUTPUT=$(cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} 2>&1) || EXIT_CODE=$? && EXIT_CODE=0
+            OUTPUT=$(cargo publish --allow-dirty --token ${{ secrets.CARGO_REGISTRY_TOKEN }} 2>&1) || EXIT_CODE=$? && EXIT_CODE=0
             echo "$OUTPUT"
             if [ $EXIT_CODE -eq 0 ]; then
               break
