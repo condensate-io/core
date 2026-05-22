@@ -93,16 +93,6 @@ services:
     networks:
       - condensate_net
 
-  condensate-website:
-    image: nginx:alpine
-    container_name: condensate-website
-    volumes:
-      - ./project_website:/usr/share/nginx/html
-    ports:
-      - "8080:80"
-    networks:
-      - condensate_net
-
 volumes:
   pgdata:
   qdrant_storage:

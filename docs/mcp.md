@@ -32,14 +32,27 @@ Configures a new automated ingestion source.
 
 **Input Schema:**
 - `name` (string, required): Human-readable name for the source.
-- `source_type` (string, required): `url`, `file`, or `api`.
-- `configuration` (object): Source-specific settings (e.g., URL endpoint, file path).
+- `source_type` (string, required): `url`, `file`, `api`, or `codebase`.
+- `configuration` (object): Source-specific settings (e.g. `path` absolute codebase directories, `max_file_size`, `allowed_extensions`, `ignore_patterns`).
 
 ### 3. `trigger_data_source`
 Manually starts a background ingestion job for an existing source.
 
 **Input Schema:**
 - `source_id` (string, required): The UUID of the data source to trigger.
+
+### 4. `query_graph`
+Searches the causal memory graph for verified, conflict-resolved entities and chronological semantic assertions to eliminate contradiction blindness.
+
+**Input Schema:**
+- `query` (string, required): The term to match against entity canonical names, types, or assertion components (subject, predicate, object).
+- `limit` (integer, optional): Maximum number of records to return. Defaults to 50.
+
+### 5. `get_context_analytics`
+Surfaces high-fidelity Hebbian path centralities (PageRank metrics), Louvain community clustering partitions, and high-betweenness graph attention bottlenecks.
+
+**Input Schema:**
+- `limit` (integer, optional): Maximum number of central nodes to retrieve. Defaults to 20.
 
 ---
 

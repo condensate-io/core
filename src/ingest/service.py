@@ -5,12 +5,14 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from src.db.models import IngestJob, IngestJobRun, FetchedArtifact
 from src.ingest.connectors.web import WebURLConnector
+from src.ingest.connectors.codebase import CodebaseConnector
 import threading
 from src.engine.job_history import log_job as _log_job
 
 # Registry of available connectors
 CONNECTORS = {
     "web": WebURLConnector(),
+    "codebase": CodebaseConnector(),
     # "chroma": ChromaConnector(),
     # "push": PushConnector(),
 }

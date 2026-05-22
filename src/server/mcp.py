@@ -88,6 +88,86 @@ async def call_tool(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid Source UUID")
 
+    elif call.name == "query_graph":
+        from sqlalchemy import select, or_
+        from src.db.models import Entity, Assertion
+        project_id = api_key.project_id
+        query = call.arguments.get("query", "")
+        limit = call.arguments.get("limit", 50)
+        
+        # Search Entities
+        entity_stmt = select(Entity).where(
+            Entity.project_id == project_id,
+            or_(
+                Entity.canonical_name.ilike(f"%{query}%"),
+                Entity.type.ilike(f"%{query}%")
+            )
+        ).limit(limit)
+        entities = db.execute(entity_stmt).scalars().all()
+        
+        # Search Assertions
+        assertion_stmt = select(Assertion).where(
+            Assertion.project_id == project_id,
+            or_(
+                Assertion.subject_text.ilike(f"%{query}%"),
+                Assertion.predicate.ilike(f"%{query}%"),
+                Assertion.object_text.ilike(f"%{query}%")
+            )
+        ).limit(limit)
+        assertions = db.execute(assertion_stmt).scalars().all()
+        
+        result_text = f"Causal Graph Query Results for '{query}':\n\n"
+        
+        result_text += "--- Entities discovered ---\n"
+        if not entities:
+            result_text += "No matching entities found.\n"
+        for e in entities:
+            result_text += f"- [{e.type}] {e.canonical_name} (Confidence: {e.confidence})\n"
+            
+        result_text += "\n--- Assertions discovered ---\n"
+        if not assertions:
+            result_text += "No matching assertions found.\n"
+        for a in assertions:
+            result_text += f"- {a.subject_text} -> {a.predicate} -> {a.object_text} (Status: {a.status}, Confidence: {a.confidence})\n"
+            
+        return {"content": [{"type": "text", "text": result_text}]}
+
+    elif call.name == "get_context_analytics":
+        from src.engine.analytics import GraphAnalyst
+        project_id = api_key.project_id
+        limit = call.arguments.get("limit", 20)
+        
+        try:
+            analyst = GraphAnalyst(db, project_id)
+            centrality = analyst.get_centrality()[:limit]
+            communities = analyst.get_communities()
+            bottlenecks = analyst.get_bottlenecks()
+            
+            result_text = "Context Optimization Graph Analytics:\n\n"
+            
+            result_text += "--- Top Hebbian Centrality Nodes (Strongest Pathways) ---\n"
+            if not centrality:
+                result_text += "No reinforced pathways calculated yet.\n"
+            for node in centrality:
+                result_text += f"- Node: {node.get('label', node.get('id'))} (Score: {node.get('score', 0):.4f})\n"
+                
+            result_text += "\n--- Louvain Communities (Consolidated Semantic Subgraphs) ---\n"
+            if not communities:
+                result_text += "No communities calculated yet.\n"
+            for comm in communities[:5]: # show first 5 clusters
+                result_text += f"- Cluster #{comm.get('community_id')}: {', '.join(comm.get('nodes', [])[:10])}\n"
+                
+            result_text += "\n--- Graph Bottlenecks (High Attention-Risk Nodes) ---\n"
+            if not bottlenecks:
+                result_text += "No bottlenecks found.\n"
+            for b in bottlenecks[:10]:
+                result_text += f"- {b.get('label', b.get('id'))} (Betweenness: {b.get('score', 0):.4f})\n"
+                
+            return {"content": [{"type": "text", "text": result_text}]}
+        except Exception as e:
+            logger.error(f"Error in get_context_analytics: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     raise HTTPException(status_code=404, detail=f"Tool {call.name} not found")
 
 @mcp_router.get("/tools")
@@ -108,13 +188,21 @@ def list_tools():
         },
         {
             "name": "add_data_source",
-            "description": "Add a new data source",
+            "description": "Add a new data source (web URLs, files, or local codebase repositories)",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
-                    "source_type": {"type": "string", "enum": ["url", "file", "api"]},
-                    "configuration": {"type": "object"}
+                    "source_type": {"type": "string", "enum": ["url", "file", "api", "codebase"]},
+                    "configuration": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Absolute directory path for codebase ingestion"},
+                            "max_file_size": {"type": "integer", "description": "Ceiling file size in bytes (default 64KB)"},
+                            "allowed_extensions": {"type": "array", "items": {"type": "string"}},
+                            "ignore_patterns": {"type": "array", "items": {"type": "string"}}
+                        }
+                    }
                 },
                 "required": ["name", "source_type"]
             }
@@ -128,6 +216,28 @@ def list_tools():
                    "source_id": {"type": "string"}
                 },
                 "required": ["source_id"]
+            }
+        },
+        {
+            "name": "query_graph",
+            "description": "Search the causal memory graph for verified entities, relations, and semantic assertions",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Term to search for within entity names or assertion statements"},
+                    "limit": {"type": "integer", "description": "Maximum number of results to return (default 50)"}
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "get_context_analytics",
+            "description": "Get Hebbian path centralities, consolidated Louvain communities, and code graph bottlenecks for token context optimization",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max number of central nodes to retrieve (default 20)"}
+                }
             }
         }
     ]
