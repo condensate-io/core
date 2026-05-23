@@ -34,7 +34,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     """
-    Initialize the database tables and apply incremental schema migrations.
+    Initialize the database tables and apply Alembic migrations.
     """
     # Import all models to register them with Base.metadata
     from . import models
@@ -43,61 +43,22 @@ def init_db():
     except ImportError:
         pass
         
-    Base.metadata.create_all(bind=engine)
-    _apply_migrations()
-
-
-def _apply_migrations():
-    """
-    Idempotent schema migrations applied on every startup.
-    Each statement uses IF NOT EXISTS / server-side guards so it is safe to
-    run repeatedly without error.
-    """
+    # Programmatically run Alembic migrations on startup
     import logging
     log = logging.getLogger("init_db")
+    log.info("Running database migrations via Alembic...")
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        log.info("Database migrations completed successfully.")
+    except Exception as e:
+        log.error(f"Failed to run database migrations: {e}")
+        # Fallback to create_all if alembic configuration fails
+        log.info("Falling back to Base.metadata.create_all...")
+        Base.metadata.create_all(bind=engine)
 
-    migrations = [
-        # --- HITL review fields (hitl_review_001) ---
-        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR",
-        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
-        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS rejection_reason VARCHAR",
-        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS instruction_score FLOAT NOT NULL DEFAULT 0.0",
-        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS safety_score FLOAT NOT NULL DEFAULT 0.0",
-        # status column default update (safe to run even if already set)
-        "ALTER TABLE assertions ALTER COLUMN status SET DEFAULT 'pending_review'",
-        # index (CREATE INDEX IF NOT EXISTS is supported in Postgres 9.5+)
-        "CREATE INDEX IF NOT EXISTS ix_assertions_status ON assertions (status)",
-        # --- OmniSim Temporal Tracking (Phase 1) ---
-        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS temporal_step INTEGER",
-        "ALTER TABLE assertions ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb",
-        "ALTER TABLE relations ADD COLUMN IF NOT EXISTS temporal_start INTEGER",
-        "ALTER TABLE relations ADD COLUMN IF NOT EXISTS temporal_end INTEGER",
-        "ALTER TABLE relations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb",
-        # --- FK CASCADE / SET NULL (fk_001) ---
-        """
-        DO $$ 
-        BEGIN 
-            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'assertions_subject_entity_id_fkey') THEN 
-                ALTER TABLE assertions DROP CONSTRAINT assertions_subject_entity_id_fkey; 
-            END IF; 
-            ALTER TABLE assertions ADD CONSTRAINT assertions_subject_entity_id_fkey FOREIGN KEY (subject_entity_id) REFERENCES entities(id) ON DELETE SET NULL;
-
-            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'assertions_object_entity_id_fkey') THEN 
-                ALTER TABLE assertions DROP CONSTRAINT assertions_object_entity_id_fkey; 
-            END IF; 
-            ALTER TABLE assertions ADD CONSTRAINT assertions_object_entity_id_fkey FOREIGN KEY (object_entity_id) REFERENCES entities(id) ON DELETE SET NULL;
-        END $$;
-        """
-    ]
-
-    with engine.connect() as conn:
-        for stmt in migrations:
-            try:
-                conn.execute(sa.text(stmt))
-                conn.commit()
-            except Exception as exc:
-                conn.rollback()
-                log.warning("Migration statement skipped (%s): %s", exc, stmt)
 
 def get_db():
     """

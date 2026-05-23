@@ -10,6 +10,39 @@ permissions:
   contents: read
 
 jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.11"
+    - name: Install Ruff
+      run: pip install ruff==0.11.12
+    - name: Ruff check
+      run: |
+        ruff check \
+          src/server \
+          src/config.py \
+          src/engine/condenser.py \
+          tests/test_proof_envelope.py \
+          tests/test_request_tracing.py \
+          tests/test_metrics.py \
+          tests/test_health.py \
+          main.py
+    - name: Ruff format check
+      run: |
+        ruff format --check \
+          src/server \
+          src/config.py \
+          src/engine/condenser.py \
+          tests/test_proof_envelope.py \
+          tests/test_request_tracing.py \
+          tests/test_metrics.py \
+          tests/test_health.py \
+          main.py
+
   test-python:
     runs-on: ubuntu-latest
     steps:

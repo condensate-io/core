@@ -97,7 +97,7 @@ Operational rules and constraints extracted from memory.
 ## 2. Vector Store Schema (Qdrant)
 
 ### Collection: `episodic_chunks`
-- **Vector**: 1536d (OpenAI / FastEmbed)
+- **Vector**: 384d (OpenAI / FastEmbed)
 - **Payload**:
   - `project_id`: String
   - `source`: String

@@ -1,0 +1,49 @@
+[project]
+name = "condensate-core"
+version = "0.0.0"
+description = "Condensate Memory System — core API and engine"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "integration: tests requiring live PostgreSQL and/or Qdrant",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["src", "tests", "main.py", "ingest_codebase.py"]
+exclude = [
+    "frontend",
+    "sdks",
+    "migrations",
+    "scratch",
+    ".venv",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = [
+    "E501",  # line length handled incrementally; many legacy lines exceed 120
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401", "F811"]
+"src/engine/condenser.py" = ["E402", "E722"]
+"main.py" = ["E402"]
+"src/server/admin.py" = ["E402", "E711", "E712", "E722", "F841"]
+"src/server/ingest_api.py" = ["F841"]
+"src/server/mcp.py" = ["F841"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"

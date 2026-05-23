@@ -1,7 +1,10 @@
 import requests
+import logging
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Generator, Tuple
 from .base import Connector
+
+logger = logging.getLogger(__name__)
 
 class WebURLConnector(Connector):
     def discover(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -30,7 +33,7 @@ class WebURLConnector(Connector):
             
         except Exception as e:
             # In a real system, we might yield an error artifact or log it
-            print(f"Failed to fetch {url}: {e}")
+            logger.warning("Failed to fetch %s: %s", url, e)
             # Re-raise or handle? For now let's swallow and log to keep pipeline moving for other items? 
             # ideally the IngestJobRun catches this.
             raise e

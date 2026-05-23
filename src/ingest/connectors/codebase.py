@@ -1,6 +1,9 @@
 import os
+import logging
 from typing import List, Dict, Any, Generator, Tuple
 from .base import Connector
+
+logger = logging.getLogger(__name__)
 
 class CodebaseConnector(Connector):
     # Standard source file extensions to index
@@ -94,4 +97,4 @@ class CodebaseConnector(Connector):
 
         except Exception as e:
             # Swallow read failures for individual files to keep ingestion moving
-            print(f"Failed to fetch codebase file {file_path}: {e}")
+            logger.warning("Failed to fetch codebase file %s: %s", file_path, e)

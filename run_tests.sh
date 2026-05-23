@@ -61,7 +61,7 @@ if docker compose exec condensate-core pytest tests/test_schema_integrity.py \
     -v --tb=short; then
     pass "Schema integrity"
 else
-    fail "Schema integrity — a column or index is missing from the live DB. Check _apply_migrations() in session.py"
+    fail "Schema integrity — a column or index is missing from the live DB. Check migrations/versions/ for the correct migration."
 fi
 
 # =============================================================================
@@ -116,6 +116,16 @@ check_endpoint() {
 check_endpoint "GET /api/admin/stats"                      "/api/admin/stats"
 check_endpoint "GET /api/admin/learnings"                  "/api/admin/learnings"
 check_endpoint "GET /api/admin/review/assertions/pending"  "/api/admin/review/assertions/pending"
+
+# Health endpoint (no auth required)
+http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${BASE_URL}/healthz" 2>/dev/null || echo "000")
+if [ "$http_code" = "200" ]; then
+    pass "GET /healthz → HTTP ${http_code}"
+elif [ "$http_code" = "000" ]; then
+    echo -e "${YELLOW}[SKIP]${NC} GET /healthz — could not reach ${BASE_URL}"
+else
+    fail "GET /healthz → HTTP ${http_code} (expected 200)"
+fi
 
 # =============================================================================
 # 6. Python SDK install check

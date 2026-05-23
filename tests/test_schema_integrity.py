@@ -136,7 +136,7 @@ class TestColumnPresence:
 
         assert not missing, (
             f"Table '{table_name}' is missing columns that are defined in the ORM model: "
-            f"{missing}. Add a migration in src/db/session.py::_apply_migrations()."
+            f"{missing}. Add an Alembic migration under migrations/versions/."
         )
 
 
@@ -164,7 +164,7 @@ class TestAssertionHITLColumns:
         db_cols = {c["name"] for c in inspector.get_columns("assertions")}
         assert col_name in db_cols, (
             f"HITL column 'assertions.{col_name}' is missing from the live DB. "
-            f"The migration in _apply_migrations() may not have run."
+            f"The Alembic migrations may not have run."
         )
 
     def test_reviewed_by_is_nullable(self, inspector):
@@ -204,33 +204,31 @@ class TestCriticalIndexes:
         indexes = {idx["name"] for idx in inspector.get_indexes(table_name)}
         assert index_name in indexes, (
             f"Index '{index_name}' on table '{table_name}' is missing. "
-            f"Check _apply_migrations() in session.py."
+            f"Check migrations/versions/ for the correct migration."
         )
 
 
 # ---------------------------------------------------------------------------
-# 4. _apply_migrations() is idempotent — calling twice must not raise
+# 4. init_db() is idempotent — calling twice must not raise
 # ---------------------------------------------------------------------------
 
 @requires_db
-def test_apply_migrations_is_idempotent():
+def test_init_db_is_idempotent():
     """
-    Running _apply_migrations() twice in a row must not raise any exception.
-    This guards against non-idempotent SQL (e.g. missing IF NOT EXISTS).
+    Running init_db() twice in a row must not raise any exception.
     """
-    from src.db.session import _apply_migrations
-    _apply_migrations()  # first call (columns already exist)
-    _apply_migrations()  # second call — must be a no-op, not an error
+    from src.db.session import init_db
+    init_db()  # first call
+    init_db()  # second call — must be a no-op, not an error
 
 
 # ---------------------------------------------------------------------------
-# 5. Unit test (no real DB): init_db() must call _apply_migrations()
+# 5. Unit test (no real DB): init_db() must run Alembic upgrade
 # ---------------------------------------------------------------------------
 
-def test_init_db_calls_apply_migrations(monkeypatch):
+def test_init_db_calls_alembic(monkeypatch):
     """
-    Verify the wiring: init_db() must call _apply_migrations() so that
-    migrations are always applied on startup, even against an existing DB.
+    Verify the wiring: init_db() must call Alembic upgrade to apply migrations.
     This test uses mocks — no real DB required.
     """
     import src.db.session as session_module
@@ -238,22 +236,16 @@ def test_init_db_calls_apply_migrations(monkeypatch):
 
     mock_engine = MagicMock()
     mock_meta = MagicMock()
-
-    calls = []
-
-    def fake_apply():
-        calls.append("_apply_migrations")
+    mock_upgrade = MagicMock()
 
     with patch.object(session_module, "engine", mock_engine), \
          patch.object(session_module.Base, "metadata", mock_meta), \
-         patch.object(session_module, "_apply_migrations", fake_apply):
+         patch("alembic.command.upgrade", mock_upgrade), \
+         patch("alembic.config.Config", MagicMock()):
         session_module.init_db()
 
-    assert "_apply_migrations" in calls, (
-        "init_db() did not call _apply_migrations(). "
-        "Schema migrations will not be applied on startup."
-    )
-    mock_meta.create_all.assert_called_once_with(bind=mock_engine)
+    mock_upgrade.assert_called_once()
+
 
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ scratch/
 custom_scripts/
 scripts/
 CUDA_DRIVER_*
+yc_session_export_nc.md
 
 # Docker
 docker-data/
@@ -83,3 +84,4 @@ docs/api.md
 docs/llm.md
 docs/mcp.md
 docs/mcp.md
+ROADMAP*

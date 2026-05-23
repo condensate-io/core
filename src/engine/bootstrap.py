@@ -10,6 +10,7 @@ from qdrant_client.http import models
 
 from src.db.models import Base, Project, Memory, Learning, OntologyNode, OntologyEdge, ApiKey
 from src.db.session import engine, SessionLocal
+from src.server.security import hash_key
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -67,9 +68,11 @@ def migrate_sqlite_to_postgres(db_session):
                 logger.info(f"Created Project: {project.name} ({project.id})")
             
             # Create ApiKey
-            existing_key = db_session.query(ApiKey).filter(ApiKey.key == key).first()
+            prefix = key[:12]
+            existing_key = db_session.query(ApiKey).filter((ApiKey.key == key) | (ApiKey.prefix == prefix)).first()
             if not existing_key:
-                api_key = ApiKey(key=key, name=name, project_id=project_uuid, is_active=is_active)
+                hashed = hash_key(key)
+                api_key = ApiKey(key=hashed, prefix=prefix, name=name, project_id=project_uuid, is_active=is_active)
                 db_session.add(api_key)
                 logger.info(f"Migrated API Key: {name}")
         

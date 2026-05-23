@@ -1,27 +1,31 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-psycopg2-binary
-qdrant-client
-pydantic
-pydantic-settings
-python-dotenv
-openai
-httpx
-jinja2
-python-multipart
-pytest
-pytest-asyncio
-fastembed
-apscheduler
-beautifulsoup4
-transformers
+# Pinned for reproducible CI and Docker builds (Python 3.11; see pip freeze in condensate-core image).
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+sqlalchemy==2.0.49
+psycopg2-binary==2.9.12
+qdrant-client==1.17.1
+pydantic==2.13.3
+pydantic-settings==2.14.0
+python-dotenv==1.2.2
+openai==2.34.0
+httpx==0.28.1
+jinja2==3.1.6
+python-multipart==0.0.27
+pytest==9.0.3
+pytest-asyncio==1.3.0
+fastembed==0.8.0
+apscheduler==3.11.2
+beautifulsoup4==4.14.3
+transformers==5.1.0
 # CUDA 12.4 PyTorch — GPU-accelerated GLiNER NER inference
-torch --extra-index-url https://download.pytorch.org/whl/cu124
-torchvision --extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.11.0 --extra-index-url https://download.pytorch.org/whl/cu124
+torchvision==0.26.0 --extra-index-url https://download.pytorch.org/whl/cu124
 # GPU-accelerated ONNX Runtime for fastembed embeddings
-onnxruntime-gpu
-tenacity
-gliner
-networkx
-python-louvain
+onnxruntime-gpu==1.25.1
+tenacity==9.1.4
+gliner==0.2.26
+networkx==3.6.1
+python-louvain==0.16
+alembic==1.15.2
+prometheus-client==0.21.1
+bcrypt==4.2.1

@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from typing import List, AsyncGenerator
 from openai import AsyncOpenAI
 from tenacity import retry, wait_exponential, stop_after_attempt
@@ -8,6 +9,8 @@ from src.db.models import EpisodicItem
 from src.llm.schemas import ExtractionBundle, ExtractedEntity, ExtractedAssertion, ExtractedEvent, ExtractedPolicy
 
 from src.llm.client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 # Constants
 MODEL_NAME = os.getenv("LLM_MODEL", "phi3") # Default to phi3 for local
@@ -86,7 +89,7 @@ class MemoryExtractor:
                     data = json.loads(cleaned_content)
                 except json.JSONDecodeError as jde:
                     # Try advanced cleanup
-                    print(f"[MemoryExtractor] Initial JSON parse failed: {jde}. Attempting repair...")
+                    logger.warning("Initial JSON parse failed: %s. Attempting repair...", jde)
                     repaired = self._cleanup_json(cleaned_content)
                     data = json.loads(repaired)
 
@@ -99,7 +102,7 @@ class MemoryExtractor:
                 )
                 results.append(bundle)
             except Exception as e:
-                print(f"Error parsing JSON for item {item.id}: {e}")
+                logger.error("Error parsing JSON for item %s: %s", item.id, e)
                 results.append(ExtractionBundle())
 
         return results

@@ -6,11 +6,11 @@ import os
 import requests
 import time
 
-API_URL = "http://localhost:8000/mcp/tools/call"
-API_KEY = "sk-5b074364-a89a-486c-94ff-79ad7daf6326"
+API_URL = os.getenv("CONDENSATE_API_URL", os.getenv("API_URL", "http://localhost:8000/mcp/tools/call"))
+API_KEY = os.getenv("CONDENSATE_API_KEY", os.getenv("API_KEY"))
 
 HEADERS = {
-    "Authorization": f"Bearer {API_KEY}",
+    "Authorization": f"Bearer {API_KEY}" if API_KEY else "",
     "Content-Type": "application/json",
 }
 
@@ -100,10 +100,28 @@ def ingest_file(fpath: str) -> bool:
 
 
 def main():
+    import argparse
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    workers = int(os.getenv("INGEST_WORKERS", "8"))
+    parser = argparse.ArgumentParser(description="Ingest the Condensates codebase into memory via the MCP store_memory API.")
+    parser.add_argument("--api-key", "-k", default=os.getenv("CONDENSATE_API_KEY", os.getenv("API_KEY")), help="API key for authentication.")
+    parser.add_argument("--api-url", "-u", default=os.getenv("CONDENSATE_API_URL", os.getenv("API_URL", "http://localhost:8000/mcp/tools/call")), help="API URL for store_memory tool.")
+    parser.add_argument("--workers", "-w", type=int, default=int(os.getenv("INGEST_WORKERS", "8")), help="Number of parallel workers.")
+    args = parser.parse_args()
+
+    global API_URL, HEADERS
+    API_URL = args.api_url
+    if not args.api_key:
+        print("ERROR: API key must be provided via the --api-key/-k CLI argument or the CONDENSATE_API_KEY environment variable.")
+        return
+
+    HEADERS = {
+        "Authorization": f"Bearer {args.api_key}",
+        "Content-Type": "application/json",
+    }
+
+    workers = args.workers
 
     print(f"Collecting files from: {ROOT}")
     files = collect_files()

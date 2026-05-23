@@ -1,5 +1,8 @@
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SynapseConfig:
     def __init__(self):
@@ -27,7 +30,7 @@ class SynapseConfig:
                     self.CONSOLIDATION_THRESHOLD = data.get("consolidation_threshold", self.CONSOLIDATION_THRESHOLD)
                     self.DECAY_INTERVAL_HOURS = data.get("decay_interval_hours", self.DECAY_INTERVAL_HOURS)
             except Exception as e:
-                print(f"Failed to load synapse_config.json: {e}")
+                logger.warning("Failed to load synapse_config.json: %s", e)
 
     def refresh(self):
         self._load()

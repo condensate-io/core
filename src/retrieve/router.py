@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from typing import List, Dict, Any, Optional
 from openai import AsyncOpenAI
 from qdrant_client import QdrantClient
@@ -9,6 +10,8 @@ from src.db.models import Assertion, Entity
 
 # Constants
 from src.llm.client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 def get_current_client(config: Optional[Dict[str, str]] = None):
     """Dynamically resolves the LLM settings from the config file if not provided explicitly."""
@@ -134,9 +137,9 @@ class MemoryRouter:
                             syn_engine = SynapseEngine(self.db)
                             syn_engine.strengthen_on_retrieval(source_ids, query)
                     except Exception as se_exc:
-                        print(f"Synapse strengthening failed: {se_exc}")
+                        logger.warning("Synapse strengthening failed: %s", se_exc)
             except Exception as e:
-                print(f"Hebbian update failed: {e}")
+                logger.warning("Hebbian update failed: %s", e)
 
         return {
             "answer": answer,
@@ -158,7 +161,7 @@ class MemoryRouter:
             return json.loads(response.choices[0].message.content)
         except Exception as e:
             # Fallback to simple recall if LLM fails or is unconfigured
-            print(f"Router classification failed: {e}")
+            logger.warning("Router classification failed: %s", e)
             return {"strategy": "recall", "keywords": []}
 
     async def _vector_search(self, project_id: Any, query: str, current_step: Optional[int] = None):

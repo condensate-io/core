@@ -1,5 +1,6 @@
 import uuid
 import hashlib
+import logging
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -16,6 +17,8 @@ CONNECTORS = {
     # "chroma": ChromaConnector(),
     # "push": PushConnector(),
 }
+
+logger = logging.getLogger(__name__)
 
 class IngestService:
     def __init__(self, db: Session):
@@ -106,7 +109,7 @@ class IngestService:
                 thread.start()
 
             except Exception as e:
-                print(f"Warning: Failed to trigger condensation: {e}")
+                logger.warning("Failed to trigger condensation: %s", e)
             
             return run
 
@@ -130,7 +133,7 @@ class IngestService:
         from qdrant_client import QdrantClient
         from src.db.session import SessionLocal
         
-        print(f"Starting background condensation for run {run_id}")
+        logger.info("Starting background condensation for run %s", run_id)
         
         start_time = datetime.utcnow()
         _log_job(f"condense_{run_id}", f"Condense: {run_id}", "running", start_time)
@@ -171,11 +174,11 @@ class IngestService:
             # Run async condensation in this thread
             asyncio.run(process_ingested_artifacts_async())
 
-            print(f"Condensed {len(new_artifacts)} artifacts for run {run_id}.")
+            logger.info("Condensed %s artifacts for run %s.", len(new_artifacts), run_id)
             _log_job(f"condense_{run_id}", f"Condense: {run_id}", "success", start_time, datetime.utcnow())
 
         except Exception as e:
-            print(f"Error in background condensation for run {run_id}: {e}")
+            logger.error("Error in background condensation for run %s: %s", run_id, e)
             _log_job(f"condense_{run_id}", f"Condense: {run_id}", "error", start_time, datetime.utcnow(), error=str(e))
         finally:
             db.close()
