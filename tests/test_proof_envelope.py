@@ -3,6 +3,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from src.config import settings
 from src.engine.condenser import Condenser, build_proof_envelope, verify_proof_envelope
 

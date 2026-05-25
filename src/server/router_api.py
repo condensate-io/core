@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
+
 from src.db.models import ApiKey
 from src.db.session import get_db, get_qdrant
 from src.retrieve.router import MemoryRouter

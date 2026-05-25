@@ -4,6 +4,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 from src.db.models import IngestJob
 from src.db.session import get_db
 from src.ingest.service import IngestService
@@ -38,7 +39,9 @@ def create_job(job: IngestJobCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/jobs/{job_id}/run")
-def trigger_job_run(job_id: uuid.UUID, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def trigger_job_run(
+    job_id: uuid.UUID, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
+):
     # Validate job exists
     job = db.query(IngestJob).filter(IngestJob.id == job_id).first()
     if not job:

@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from qdrant_client import QdrantClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 from src.db.session import get_db, get_qdrant
 
 router = APIRouter(tags=["health"])

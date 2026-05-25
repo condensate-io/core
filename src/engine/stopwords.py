@@ -100,11 +100,16 @@ def _load_from_cache() -> frozenset[str] | None:
 
 def _fetch_remote() -> frozenset[str] | None:
     """Download the ISO corpus. Returns the word set, or None on error."""
+    if not CORPUS_URL.startswith("https://"):
+        logger.error("[StopWords] Refusing to fetch stopwords from non-HTTPS URL")
+        return None
     try:
-        import urllib.request
+        import httpx
+
         logger.info(f"[StopWords] Fetching corpus from {CORPUS_URL} ...")
-        with urllib.request.urlopen(CORPUS_URL, timeout=10) as resp:
-            text = resp.read().decode("utf-8")
+        response = httpx.get(CORPUS_URL, timeout=10.0, follow_redirects=True)
+        response.raise_for_status()
+        text = response.text
         words = {w.strip().lower() for w in text.splitlines() if w.strip()}
         logger.info(f"[StopWords] Downloaded {len(words)} words.")
         return frozenset(words)

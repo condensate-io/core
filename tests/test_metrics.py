@@ -1,6 +1,7 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
 from src.server.metrics import PrometheusMiddleware
 from src.server.metrics import router as metrics_router
 
@@ -35,5 +36,7 @@ def test_http_requests_recorded_in_metrics(metrics_client):
     assert response.status_code == 200
     body = response.text
     assert 'http_requests_total{method="GET",path="/sample",status_code="200"}' in body
-    metric_lines = [line for line in body.splitlines() if line.startswith("http_requests_total{")]
+    metric_lines = [
+        line for line in body.splitlines() if line.startswith("http_requests_total{")
+    ]
     assert not any('path="/metrics"' in line for line in metric_lines)

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
 from src.db.models import Assertion
 from src.db.session import get_db
 
@@ -61,7 +62,9 @@ def list_pending_assertions(
                 "confidence": a.confidence,
                 "instruction_score": a.instruction_score,
                 "safety_score": a.safety_score,
-                "first_seen_at": a.first_seen_at.isoformat() if a.first_seen_at else None,
+                "first_seen_at": a.first_seen_at.isoformat()
+                if a.first_seen_at
+                else None,
                 "provenance": a.provenance,
             }
             for a in assertions
@@ -70,7 +73,9 @@ def list_pending_assertions(
 
 
 @router.post("/assertions/{assertion_id}/approve")
-def approve_assertion(assertion_id: str, request: ApprovalRequest, db: Session = Depends(get_db)):
+def approve_assertion(
+    assertion_id: str, request: ApprovalRequest, db: Session = Depends(get_db)
+):
     """
     Approve a pending assertion, making it active in the knowledge graph.
     """
@@ -85,7 +90,10 @@ def approve_assertion(assertion_id: str, request: ApprovalRequest, db: Session =
         raise HTTPException(status_code=404, detail="Assertion not found")
 
     if assertion.status != "pending_review":
-        raise HTTPException(status_code=400, detail=f"Assertion is not pending review (status: {assertion.status})")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Assertion is not pending review (status: {assertion.status})",
+        )
 
     # Update status
     assertion.status = "approved"
@@ -103,7 +111,9 @@ def approve_assertion(assertion_id: str, request: ApprovalRequest, db: Session =
 
 
 @router.post("/assertions/{assertion_id}/reject")
-def reject_assertion(assertion_id: str, request: RejectionRequest, db: Session = Depends(get_db)):
+def reject_assertion(
+    assertion_id: str, request: RejectionRequest, db: Session = Depends(get_db)
+):
     """
     Reject a pending assertion with a reason.
     """
@@ -118,7 +128,10 @@ def reject_assertion(assertion_id: str, request: RejectionRequest, db: Session =
         raise HTTPException(status_code=404, detail="Assertion not found")
 
     if assertion.status != "pending_review":
-        raise HTTPException(status_code=400, detail=f"Assertion is not pending review (status: {assertion.status})")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Assertion is not pending review (status: {assertion.status})",
+        )
 
     # Update status
     assertion.status = "rejected"
@@ -138,7 +151,9 @@ def reject_assertion(assertion_id: str, request: RejectionRequest, db: Session =
 
 
 @router.post("/assertions/bulk-approve")
-def bulk_approve_assertions(request: BulkApprovalRequest, db: Session = Depends(get_db)):
+def bulk_approve_assertions(
+    request: BulkApprovalRequest, db: Session = Depends(get_db)
+):
     """
     Approve multiple assertions in a single request.
     """
@@ -168,4 +183,8 @@ def bulk_approve_assertions(request: BulkApprovalRequest, db: Session = Depends(
 
     db.commit()
 
-    return {"approved_count": approved_count, "total_requested": len(request.assertion_ids), "errors": errors}
+    return {
+        "approved_count": approved_count,
+        "total_requested": len(request.assertion_ids),
+        "errors": errors,
+    }

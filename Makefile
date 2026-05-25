@@ -10,6 +10,7 @@ COMPOSE_TEST := $(COMPOSE) --profile test
 PYTEST_UNIT := tests/ --ignore=tests/test_schema_integrity.py --ignore=tests/test_omnisim_scenarios.py -m "not integration"
 
 .PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-contradiction test-integration test-all
+.PHONY: lint-ci lint-python lint-frontend npm-install-frontend npm-install-mcp
 
 test: test-python test-ts test-go test-mcp
 
@@ -38,3 +39,18 @@ test-integration:
 	$(COMPOSE_TEST) run --rm test-python sh -c "alembic upgrade head && pytest tests/test_integration_stack.py -v -m integration"
 
 test-all: test test-integration test-benchmarks test-contradiction
+
+# CI parity — run from WSL only (never host pip/npm)
+lint-ci: lint-python lint-frontend
+
+lint-python:
+	$(COMPOSE_TEST) run --rm --no-deps lint-python
+
+lint-frontend:
+	$(COMPOSE_TEST) run --rm lint-frontend
+
+npm-install-frontend:
+	$(COMPOSE_TEST) run --rm npm-install-frontend
+
+npm-install-mcp:
+	$(COMPOSE_TEST) run --rm npm-install-mcp

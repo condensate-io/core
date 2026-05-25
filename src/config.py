@@ -53,7 +53,9 @@ class Settings(BaseSettings):
     SYNAPSE_PRUNE_THRESHOLD: float = 0.05
     SYNAPSE_CONSOLIDATION_THRESHOLD: float = 0.75
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     @property
     def final_qdrant_url(self) -> str:
@@ -68,15 +70,25 @@ class Settings(BaseSettings):
                 f"INSTRUCTION_BLOCK_THRESHOLD must be in [0.0, 1.0], got {self.INSTRUCTION_BLOCK_THRESHOLD}"
             )
         if not (0.0 <= self.SAFETY_BLOCK_THRESHOLD <= 1.0):
-            raise ValueError(f"SAFETY_BLOCK_THRESHOLD must be in [0.0, 1.0], got {self.SAFETY_BLOCK_THRESHOLD}")
+            raise ValueError(
+                f"SAFETY_BLOCK_THRESHOLD must be in [0.0, 1.0], got {self.SAFETY_BLOCK_THRESHOLD}"
+            )
         if not (0.0 <= self.CONFIDENCE_THRESHOLD <= 1.0):
-            raise ValueError(f"CONFIDENCE_THRESHOLD must be in [0.0, 1.0], got {self.CONFIDENCE_THRESHOLD}")
+            raise ValueError(
+                f"CONFIDENCE_THRESHOLD must be in [0.0, 1.0], got {self.CONFIDENCE_THRESHOLD}"
+            )
         if not (0.0 < self.SYNAPSE_LEARNING_RATE < 1.0):
-            raise ValueError(f"SYNAPSE_LEARNING_RATE must be in (0.0, 1.0), got {self.SYNAPSE_LEARNING_RATE}")
+            raise ValueError(
+                f"SYNAPSE_LEARNING_RATE must be in (0.0, 1.0), got {self.SYNAPSE_LEARNING_RATE}"
+            )
         if not (0.0 < self.SYNAPSE_DECAY_RATE <= 1.0):
-            raise ValueError(f"SYNAPSE_DECAY_RATE must be in (0.0, 1.0], got {self.SYNAPSE_DECAY_RATE}")
+            raise ValueError(
+                f"SYNAPSE_DECAY_RATE must be in (0.0, 1.0], got {self.SYNAPSE_DECAY_RATE}"
+            )
         if not (0.0 <= self.SYNAPSE_PRUNE_THRESHOLD <= 1.0):
-            raise ValueError(f"SYNAPSE_PRUNE_THRESHOLD must be in [0.0, 1.0], got {self.SYNAPSE_PRUNE_THRESHOLD}")
+            raise ValueError(
+                f"SYNAPSE_PRUNE_THRESHOLD must be in [0.0, 1.0], got {self.SYNAPSE_PRUNE_THRESHOLD}"
+            )
         if not (0.0 <= self.SYNAPSE_CONSOLIDATION_THRESHOLD <= 1.0):
             raise ValueError(
                 f"SYNAPSE_CONSOLIDATION_THRESHOLD must be in [0.0, 1.0], got {self.SYNAPSE_CONSOLIDATION_THRESHOLD}"

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
 from src.db.session import get_db, get_qdrant
 from src.server.health import router
 

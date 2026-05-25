@@ -2,7 +2,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.server.middleware.rate_limit import RateLimitMiddleware, SlidingWindowRateLimiter
+from src.server.middleware.rate_limit import (
+    RateLimitMiddleware,
+    SlidingWindowRateLimiter,
+)
 
 
 @pytest.fixture
@@ -96,11 +99,23 @@ def test_separate_limits_per_client_ip():
         return {"ok": True}
 
     client = TestClient(app)
-    assert client.get("/api/data", headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 200
-    assert client.get("/api/data", headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 200
-    assert client.get("/api/data", headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 429
+    assert (
+        client.get("/api/data", headers={"X-Forwarded-For": "1.2.3.4"}).status_code
+        == 200
+    )
+    assert (
+        client.get("/api/data", headers={"X-Forwarded-For": "1.2.3.4"}).status_code
+        == 200
+    )
+    assert (
+        client.get("/api/data", headers={"X-Forwarded-For": "1.2.3.4"}).status_code
+        == 429
+    )
 
-    assert client.get("/api/data", headers={"X-Forwarded-For": "5.6.7.8"}).status_code == 200
+    assert (
+        client.get("/api/data", headers={"X-Forwarded-For": "5.6.7.8"}).status_code
+        == 200
+    )
 
 
 def test_sliding_window_retry_after_uses_oldest_timestamp():

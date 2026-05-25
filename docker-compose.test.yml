@@ -70,3 +70,63 @@ services:
     environment:
       PYTHONPATH: /app
     entrypoint: ["python", "benchmarks/runners/run_contradiction.py"]
+
+  lint-python:
+    profiles: [test]
+    build: .
+    working_dir: /app
+    volumes:
+      - .:/app
+    entrypoint: []
+    command: >
+      sh -c "pip install -q ruff==0.11.12 bandit &&
+      ruff check
+      src/server
+      src/config.py
+      src/config_cache.py
+      src/engine/condenser.py
+      tests/test_proof_envelope.py
+      tests/test_request_tracing.py
+      tests/test_metrics.py
+      tests/test_health.py
+      tests/test_rate_limit.py
+      tests/test_config_cache.py
+      main.py &&
+      ruff format --check
+      src/server
+      src/config.py
+      src/config_cache.py
+      src/engine/condenser.py
+      tests/test_proof_envelope.py
+      tests/test_request_tracing.py
+      tests/test_metrics.py
+      tests/test_health.py
+      tests/test_rate_limit.py
+      tests/test_config_cache.py
+      main.py &&
+      bandit -r src -c bandit.yaml -ll"
+
+  lint-frontend:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /workspace/frontend
+    volumes:
+      - .:/workspace
+    command: >
+      sh -c "npm ci && npm run lint && npm run format:check"
+
+  npm-install-frontend:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /workspace/frontend
+    volumes:
+      - .:/workspace
+    command: npm install
+
+  npm-install-mcp:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /workspace/sdks/mcp-bridge
+    volumes:
+      - .:/workspace
+    command: npm install

@@ -64,7 +64,7 @@ jobs:
         cache-dependency-path: frontend/package-lock.json
     - name: Install and lint
       run: |
-        npm install
+        npm ci
         npm run lint
         npm run format:check
 

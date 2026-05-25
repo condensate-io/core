@@ -3,6 +3,7 @@ import logging
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
 from src.server.middleware.request_context import (
     REQUEST_ID_HEADER,
     RequestContextMiddleware,

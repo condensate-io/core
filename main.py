@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
 from src.db.session import init_db
 from src.engine.scheduler import start_scheduler
 from src.server.admin import router as admin_router
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
 
     # Init Qdrant Collections
     from qdrant_client import QdrantClient
+
     from src.db.qdrant import init_qdrant
     from src.db.session import QDRANT_API_KEY, QDRANT_URL
 
@@ -66,7 +68,9 @@ async def lifespan(app: FastAPI):
             # Run blocking model load in a thread so the event loop stays free
             engine = await loop.run_in_executor(None, get_ner_engine)
             # Run a tiny inference to JIT-compile any lazy ops
-            await loop.run_in_executor(None, engine.extract_entities, "Warmup: Alice works at Acme Corp.")
+            await loop.run_in_executor(
+                None, engine.extract_entities, "Warmup: Alice works at Acme Corp."
+            )
             log.info("ModernBERT NER model ready.")
         except Exception as e:
             log.error(f"NER warmup failed (non-fatal): {e}")
@@ -86,7 +90,9 @@ app.include_router(health_router)
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
 app.include_router(memory_router, prefix="/api/v1", tags=["memory"])
-app.include_router(v1_router, prefix="/api")  # Mounting /v1 router under /api -> /api/v1
+app.include_router(
+    v1_router, prefix="/api"
+)  # Mounting /v1 router under /api -> /api/v1
 app.include_router(ingest_router)
 app.include_router(review_router)
 
@@ -94,7 +100,11 @@ app.include_router(review_router)
 # Check if frontend build exists
 FRONTEND_DIR = os.path.join(os.getcwd(), "frontend", "dist")
 if os.path.exists(FRONTEND_DIR):
-    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+    app.mount(
+        "/assets",
+        StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")),
+        name="assets",
+    )
 
     @app.get("/")
     async def serve_index():
