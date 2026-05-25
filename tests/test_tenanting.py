@@ -44,10 +44,12 @@ def test_tenant_isolation_and_cascade():
     ak1 = MagicMock(spec=ApiKey)
     ak1.key = f"sk-test-a-{uuid.uuid4()}"
     ak1.project_id = p1_id
+    ak1.is_active = True
 
     ak2 = MagicMock(spec=ApiKey)
     ak2.key = f"sk-test-b-{uuid.uuid4()}"
     ak2.project_id = p2_id
+    ak2.is_active = True
 
     # --- Build mock DB session ---
     mock_db = MagicMock()
@@ -62,6 +64,7 @@ def test_tenant_isolation_and_cascade():
     app = _make_app()
 
     from src.db.session import get_db, get_qdrant
+    from src.server.admin import get_api_key
     app.dependency_overrides[get_db] = mock_get_db
     app.dependency_overrides[get_qdrant] = mock_get_qdrant
 
@@ -69,7 +72,7 @@ def test_tenant_isolation_and_cascade():
 
     try:
         # ---- 1. Test scoped ingestion via Key A ----
-        mock_db.execute.return_value.scalar_one_or_none.return_value = ak1
+        app.dependency_overrides[get_api_key] = lambda: ak1
 
         with patch("src.server.v1_api.IngressAgent") as mock_ingress_cls, \
              patch("src.server.v1_api._condense_project_background") as mock_bg:
@@ -107,7 +110,7 @@ def test_tenant_isolation_and_cascade():
             mock_router_cls.return_value = mock_mr
 
             # Retrieve with Key B → should scope to p2
-            mock_db.execute.return_value.scalar_one_or_none.return_value = ak2
+            app.dependency_overrides[get_api_key] = lambda: ak2
             resp_b = client.post(
                 "/api/v1/memory/retrieve",
                 json={"query": "Get info"},
@@ -117,7 +120,7 @@ def test_tenant_isolation_and_cascade():
             assert resp_b.json()["answer"] == f"Answer for {p2_id}"
 
             # Retrieve with Key A → should scope to p1
-            mock_db.execute.return_value.scalar_one_or_none.return_value = ak1
+            app.dependency_overrides[get_api_key] = lambda: ak1
             resp_a = client.post(
                 "/api/v1/memory/retrieve",
                 json={"query": "Get info"},

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from src.config import settings
+from src.config_cache import load_json_config
 from src.db.models import Assertion, EpisodicItem, OntologyNode, Policy
 from src.engine.deterministic import DeterministicCondenser
 from src.engine.edge_synthesizer import EdgeSynthesizer
@@ -74,15 +75,10 @@ class Condenser:
             return
 
         # Check if condensation is paused
-        config_path = "system_config.json"
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    if json.load(f).get("condensation_paused", False):
-                        logger.info(f"[Condenser] Condensation is paused. Skipping batch for project {project_id}.")
-                        return
-            except Exception:
-                pass
+        system_config = load_json_config("system_config.json", settings.CONFIG_CACHE_TTL_SECONDS)
+        if system_config.get("condensation_paused", False):
+            logger.info(f"[Condenser] Condensation is paused. Skipping batch for project {project_id}.")
+            return
 
         from src.engine.job_history import log_job
 
@@ -357,14 +353,8 @@ class Condenser:
         logger.debug("Guardrail result: should_block=%s", guardrail_result["should_block"])
 
         # Determine status based on review mode and guardrail scores
-        config_path = "system_config.json"
-        review_mode = os.getenv("REVIEW_MODE", "manual").lower()
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    review_mode = json.load(f).get("review_mode", review_mode)
-            except Exception:
-                pass
+        system_config = load_json_config("system_config.json", settings.CONFIG_CACHE_TTL_SECONDS)
+        review_mode = system_config.get("review_mode", os.getenv("REVIEW_MODE", "manual").lower())
         rejection_reason = None
 
         if review_mode == "auto":

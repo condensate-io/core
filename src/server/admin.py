@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from src.db.models import ApiKey, Assertion, DataSource, Entity, EpisodicItem, Project, Relation
 from src.db.session import get_db, get_qdrant
+from src.config_cache import invalidate_json_config
 from src.server.security import hash_key, verify_key
 
 router = APIRouter()
@@ -879,6 +880,8 @@ def save_llm_configs(data: Dict[str, Any], user: str = Depends(verify_admin)):
         logger.critical("Failed to write to %s: %s", CONFIG_FILE, e)
         raise HTTPException(status_code=500, detail=f"Failed to write config file: {e}")
 
+    invalidate_json_config(CONFIG_FILE)
+
     # Update environment variables for the primary one for legacy/system compatibility
     primary = next((c for c in configs if c.get("is_primary")), None)
     if primary:
@@ -980,6 +983,8 @@ def get_system_config():
 def save_system_config(data: Dict[str, Any], user: str = Depends(verify_admin)):
     with open(SYSTEM_CONFIG_FILE, "w") as f:
         json.dump(data, f)
+
+    invalidate_json_config(SYSTEM_CONFIG_FILE)
 
     if "review_mode" in data:
         os.environ["REVIEW_MODE"] = data["review_mode"]

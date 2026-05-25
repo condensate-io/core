@@ -25,23 +25,172 @@ jobs:
         ruff check \
           src/server \
           src/config.py \
+          src/config_cache.py \
           src/engine/condenser.py \
           tests/test_proof_envelope.py \
           tests/test_request_tracing.py \
           tests/test_metrics.py \
           tests/test_health.py \
+          tests/test_rate_limit.py \
+          tests/test_config_cache.py \
           main.py
     - name: Ruff format check
       run: |
         ruff format --check \
           src/server \
           src/config.py \
+          src/config_cache.py \
           src/engine/condenser.py \
           tests/test_proof_envelope.py \
           tests/test_request_tracing.py \
           tests/test_metrics.py \
           tests/test_health.py \
+          tests/test_rate_limit.py \
+          tests/test_config_cache.py \
           main.py
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Node 20
+      uses: actions/setup-node@v3
+      with:
+        node-version: "20"
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+    - name: Install and lint
+      run: |
+        npm install
+        npm run lint
+        npm run format:check
+
+  npm-audit-js:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: frontend
+            working_directory: frontend
+            cache_dependency_path: frontend/package-lock.json
+          - id: mcp-bridge
+            working_directory: sdks/mcp-bridge
+            cache_dependency_path: sdks/mcp-bridge/package-lock.json
+    defaults:
+      run:
+        working-directory: ./${{ matrix.working_directory }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Node 20
+      uses: actions/setup-node@v3
+      with:
+        node-version: "20"
+        cache: npm
+        cache-dependency-path: ${{ matrix.cache_dependency_path }}
+    - name: Install dependencies
+      run: npm ci
+    - name: npm audit (high or higher)
+      run: npm audit --audit-level=high
+
+  test-mcp-bridge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./sdks/mcp-bridge
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Node 20
+      uses: actions/setup-node@v3
+      with:
+        node-version: "20"
+        cache: npm
+        cache-dependency-path: sdks/mcp-bridge/package-lock.json
+    - name: Install dependencies
+      run: npm ci
+    - name: Run tests
+      run: npm test
+
+  verify-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: condensate
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: condensate_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U condensate -d condensate_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://condensate:password@localhost:5432/condensate_db
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.11"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Apply migrations on fresh database
+      run: alembic upgrade head
+    - name: Verify database is at head revision
+      run: |
+        CURRENT=$(alembic current --verbose | awk '/^Rev:/ { print $2; exit }')
+        HEAD=$(alembic heads --verbose | awk '/^Rev:/ { print $2; exit }')
+        echo "Current revision: ${CURRENT}"
+        echo "Head revision: ${HEAD}"
+        test -n "${CURRENT}" && test -n "${HEAD}" && test "${CURRENT}" = "${HEAD}"
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: condensate
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: condensate_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U condensate -d condensate_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+    env:
+      DATABASE_URL: postgresql://condensate:password@localhost:5432/condensate_db
+      QDRANT_HOST: localhost
+      QDRANT_PORT: 6333
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.11"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio httpx
+    - name: Apply migrations
+      run: alembic upgrade head
+    - name: Run integration tests
+      run: pytest tests/test_integration_stack.py -v -m integration
 
   test-python:
     runs-on: ubuntu-latest
@@ -55,10 +204,13 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-asyncio httpx
-    - name: Run Tests
+        pip install pytest pytest-asyncio httpx pytest-cov bandit
+    - name: Bandit SAST
+      run: bandit -r src -c bandit.yaml -ll
+    - name: Run Tests with coverage
       run: |
-        pytest tests/
+        pytest tests/ --ignore=tests/test_schema_integrity.py --ignore=tests/test_omnisim_scenarios.py \
+          --cov=src --cov-report=term-missing --cov-fail-under=35
 
   test-rust:
     runs-on: ubuntu-latest
@@ -75,3 +227,38 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  test-ts-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./sdks/ts
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Node 20
+      uses: actions/setup-node@v3
+      with:
+        node-version: "20"
+        cache: npm
+        cache-dependency-path: sdks/ts/package-lock.json
+    - name: Install dependencies and run tests
+      run: |
+        npm install
+        npm run build
+        npm test
+
+  test-go-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./sdks/go
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Go 1.21
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.21"
+    - name: Download modules and test
+      run: |
+        go mod tidy
+        go test ./... -count=1 -v

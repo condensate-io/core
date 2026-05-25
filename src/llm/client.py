@@ -5,6 +5,9 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from tenacity import retry, wait_exponential, stop_after_attempt
 
+from src.config import settings
+from src.config_cache import load_json_config
+
 logger = logging.getLogger("LLMClient")
 
 # Per-loop semaphore cache to avoid RuntimeError across different event loops
@@ -21,31 +24,28 @@ class LLMClient:
         self._load_config()
 
     def _load_config(self):
-        import json
-        config_path = "llm_config.json"
-        if os.path.exists(config_path):
+        data = load_json_config("llm_config.json", settings.CONFIG_CACHE_TTL_SECONDS)
+        if data:
             try:
-                with open(config_path, "r") as f:
-                    data = json.load(f)
-                    configs = data.get("configs", [])
-                    # Find primary active config
-                    primary = next((c for c in configs if c.get("is_primary") and c.get("is_active")), None)
-                    if not primary:
-                        # Fallback to any active config
-                        primary = next((c for c in configs if c.get("is_active")), None)
-                    
-                    if primary:
-                        self.base_url = primary.get("baseUrl")
-                        self.api_key = primary.get("apiKey")
-                        self.model = primary.get("model")
-                        return
-                    
-                    # Legacy support for old flat structure if it exists
-                    if "baseUrl" in data:
-                        self.base_url = data.get("baseUrl")
-                        self.api_key = data.get("apiKey")
-                        self.model = data.get("model")
-                        return
+                configs = data.get("configs", [])
+                # Find primary active config
+                primary = next((c for c in configs if c.get("is_primary") and c.get("is_active")), None)
+                if not primary:
+                    # Fallback to any active config
+                    primary = next((c for c in configs if c.get("is_active")), None)
+
+                if primary:
+                    self.base_url = primary.get("baseUrl")
+                    self.api_key = primary.get("apiKey")
+                    self.model = primary.get("model")
+                    return
+
+                # Legacy support for old flat structure if it exists
+                if "baseUrl" in data:
+                    self.base_url = data.get("baseUrl")
+                    self.api_key = data.get("apiKey")
+                    self.model = data.get("model")
+                    return
             except Exception as e:
                 logger.error(f"Failed to load llm_config.json: {e}")
 
@@ -56,22 +56,19 @@ class LLMClient:
 
     @staticmethod
     def get_active_config() -> Dict[str, Any]:
-        import json
-        config_path = "llm_config.json"
-        if os.path.exists(config_path):
+        data = load_json_config("llm_config.json", settings.CONFIG_CACHE_TTL_SECONDS)
+        if data:
             try:
-                with open(config_path, "r") as f:
-                    data = json.load(f)
-                    configs = data.get("configs", [])
-                    primary = next((c for c in configs if c.get("is_primary") and c.get("is_active")), None)
-                    if not primary:
-                        primary = next((c for c in configs if c.get("is_active")), None)
-                    if primary:
-                        return primary
-                    
-                    if "baseUrl" in data:
-                        return data # old format fallback
-            except:
+                configs = data.get("configs", [])
+                primary = next((c for c in configs if c.get("is_primary") and c.get("is_active")), None)
+                if not primary:
+                    primary = next((c for c in configs if c.get("is_active")), None)
+                if primary:
+                    return primary
+
+                if "baseUrl" in data:
+                    return data  # old format fallback
+            except Exception:
                 pass
         
         return {

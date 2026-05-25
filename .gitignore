@@ -36,7 +36,9 @@ AGENTS.md
 SKILL_MAP.md
 tasks.md
 learnings.md
-tests/
+tests/**
+!tests/test_integration*.py
+!tests/test_router_tokens.py
 prompts/
 docs/
 scratch/

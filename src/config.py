@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = "admin"
     UPLOAD_DIR: str = "uploads"
 
+    # Config file cache
+    CONFIG_CACHE_TTL_SECONDS: int = 30
+
     # LLM config
     LLM_ENABLED: bool = False
     LLM_MODEL: str = "phi3"
@@ -37,6 +40,11 @@ class Settings(BaseSettings):
     INSTRUCTION_BLOCK_THRESHOLD: float = 0.5
     SAFETY_BLOCK_THRESHOLD: float = 0.7
     CONFIDENCE_THRESHOLD: float = 0.8
+
+    # Rate limiting (public API)
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_REQUESTS: int = 120
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     # Synapse Engine
     SYNAPSE_ENGINE_ENABLED: bool = True

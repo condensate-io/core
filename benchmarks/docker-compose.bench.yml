@@ -1,0 +1,10 @@
+# Extends the main stack for benchmark runs against a live Condensate API.
+services:
+  condensate-core:
+    environment:
+      REVIEW_MODE: auto
+
+  test-benchmarks:
+    profiles: [test]
+    environment:
+      CONDENSATE_URL: http://condensate-core:8000

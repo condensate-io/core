@@ -5,7 +5,7 @@ description = "Condensate Memory System — core API and engine"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "benchmarks/tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 addopts = "-v --tb=short"
@@ -16,7 +16,10 @@ markers = [
     "integration: tests requiring live PostgreSQL and/or Qdrant",
 ]
 
-[tool.ruff]
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*"]
+
 target-version = "py311"
 line-length = 120
 src = ["src", "tests", "main.py", "ingest_codebase.py"]

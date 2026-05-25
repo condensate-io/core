@@ -6,10 +6,13 @@
         "condensate-mcp": "./index.js"
     },
     "scripts": {
-        "start": "node index.js"
+        "start": "node index.js",
+        "test": "node --test"
     },
     "files": [
         "index.js",
+        "handlers.js",
+        "tools.js",
         "README.md"
     ],
     "dependencies": {

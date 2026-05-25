@@ -30,8 +30,11 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    # Use DATABASE_URL environment variable if set, otherwise fallback to config
-    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/condensate")
+    """Resolve DB URL from DATABASE_URL (same default as src.db.session)."""
+    return os.getenv(
+        "DATABASE_URL",
+        "postgresql://condensate:password@localhost:5432/condensate_db",
+    )
 
 
 def run_migrations_offline() -> None:

@@ -1,0 +1,72 @@
+# Test stack — run all suites inside Docker via WSL:
+#
+#   wsl -e bash -lc "cd /mnt/c/LocalProjects/Condensates && make test"
+#   wsl -e bash -lc "cd /mnt/c/LocalProjects/Condensates && make test-integration"
+#
+# Individual targets: make test-python | test-ts | test-go | test-mcp
+
+services:
+  test-python:
+    profiles: [test]
+    build: .
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://user:password@condensate-db:5432/condensate
+      QDRANT_HOST: condensate-vector
+      QDRANT_PORT: "6333"
+      API_BASE_URL: http://condensate-core:8000
+      PYTHONPATH: /app
+    networks:
+      - condensate_net
+    entrypoint: ["pytest"]
+
+  test-ts-sdk:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /workspace/sdks/ts
+    volumes:
+      - .:/workspace
+    command: >
+      sh -c "npm ci && npm run build && npm test"
+
+  test-go-sdk:
+    profiles: [test]
+    image: golang:1.21-alpine
+    working_dir: /workspace/sdks/go
+    volumes:
+      - .:/workspace
+    command: >
+      sh -c "go mod tidy && go test ./... -count=1 -v"
+
+  test-mcp-bridge:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /workspace/sdks/mcp-bridge
+    volumes:
+      - .:/workspace
+    command: >
+      sh -c "npm ci && npm test"
+
+  test-benchmarks:
+    profiles: [test]
+    build: .
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      PYTHONPATH: /app
+    networks:
+      - condensate_net
+    entrypoint: ["python", "benchmarks/runners/run_locomo.py"]
+
+  test-contradiction:
+    profiles: [test]
+    build: .
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      PYTHONPATH: /app
+    entrypoint: ["python", "benchmarks/runners/run_contradiction.py"]
