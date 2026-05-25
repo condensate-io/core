@@ -6,10 +6,10 @@ live Postgres schema matches the SQLAlchemy ORM models.
 
 Why this matters
 ----------------
-SQLAlchemy's `create_all()` only creates tables that don't exist yet.  It
-will NOT add new columns to existing tables.  If a developer adds a column
-to a model and forgets to write a migration, the app silently breaks at
-runtime — exactly what happened with the HITL `reviewed_by` columns.
+Alembic migrations are the sole schema source of truth.  If a developer
+adds a column to a model and forgets to write a migration, the app breaks
+at runtime — exactly what happened with the HITL `reviewed_by` columns
+before migrations were enforced.
 
 These tests are skipped automatically when the database is unreachable
 (e.g. in a pure-unit CI run without Postgres), so they never block
@@ -234,17 +234,26 @@ def test_init_db_calls_alembic(monkeypatch):
     import src.db.session as session_module
     from unittest.mock import patch, MagicMock
 
-    mock_engine = MagicMock()
-    mock_meta = MagicMock()
     mock_upgrade = MagicMock()
 
-    with patch.object(session_module, "engine", mock_engine), \
-         patch.object(session_module.Base, "metadata", mock_meta), \
-         patch("alembic.command.upgrade", mock_upgrade), \
+    with patch("alembic.command.upgrade", mock_upgrade), \
          patch("alembic.config.Config", MagicMock()):
         session_module.init_db()
 
     mock_upgrade.assert_called_once()
+
+
+def test_init_db_reraises_on_migration_failure():
+    """
+    init_db() must fail fast when Alembic upgrade fails — no create_all fallback.
+    """
+    import src.db.session as session_module
+    from unittest.mock import patch, MagicMock
+
+    with patch("alembic.command.upgrade", side_effect=RuntimeError("migration failed")), \
+         patch("alembic.config.Config", MagicMock()):
+        with pytest.raises(RuntimeError, match="Database migration failed"):
+            session_module.init_db()
 
 
 

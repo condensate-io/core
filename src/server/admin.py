@@ -15,7 +15,17 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from src.db.models import ApiKey, Assertion, DataSource, Entity, EpisodicItem, Project, Relation
+
+from src.config_cache import invalidate_json_config
+from src.db.models import (
+    ApiKey,
+    Assertion,
+    DataSource,
+    Entity,
+    EpisodicItem,
+    Project,
+    Relation,
+)
 from src.db.session import get_db, get_qdrant
 from src.server.security import hash_key, verify_key
 
@@ -49,7 +59,10 @@ def get_api_key(
             prefix = clean_key[:12]
             records = (
                 db.execute(
-                    select(ApiKey).where((ApiKey.prefix == prefix) | (ApiKey.prefix.is_(None)), ApiKey.is_active)
+                    select(ApiKey).where(
+                        (ApiKey.prefix == prefix) | (ApiKey.prefix.is_(None)),
+                        ApiKey.is_active,
+                    )
                 )
                 .scalars()
                 .all()
@@ -72,15 +85,21 @@ def get_api_key(
             admin_user = os.getenv("ADMIN_USERNAME", "admin")
             admin_pass = os.getenv("ADMIN_PASSWORD", "admin")
 
-            if secrets.compare_digest(user, admin_user) and secrets.compare_digest(pwd, admin_pass):
+            if secrets.compare_digest(user, admin_user) and secrets.compare_digest(
+                pwd, admin_pass
+            ):
                 # Return the primary API key or a placeholder for Admin
-                primary = db.execute(select(ApiKey).where(ApiKey.name == "condensate-primary")).scalar_one_or_none()
+                primary = db.execute(
+                    select(ApiKey).where(ApiKey.name == "condensate-primary")
+                ).scalar_one_or_none()
                 if primary:
                     return primary
         except Exception:
             pass
 
-    raise HTTPException(status_code=401, detail="Missing or Invalid API Key / Credentials")
+    raise HTTPException(
+        status_code=401, detail="Missing or Invalid API Key / Credentials"
+    )
 
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
@@ -113,7 +132,6 @@ def check_auth(user: str = Depends(verify_admin)):
 # --- Stats ---
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
-
     total_projects = db.query(Project).count()
     total_memories = db.query(EpisodicItem).count()
     total_learnings = db.query(Assertion).count()
@@ -128,7 +146,9 @@ def get_stats(db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
         pass
-    pending_review = db.query(Assertion).filter(Assertion.status == "pending_review").count()
+    pending_review = (
+        db.query(Assertion).filter(Assertion.status == "pending_review").count()
+    )
 
     return {
         "total_projects": total_projects,
@@ -160,7 +180,11 @@ def get_keys(db: Session = Depends(get_db)):
     keys = db.query(ApiKey).all()
     return [
         {
-            "key": (k.prefix + "..." if k.prefix else (k.key[:12] + "..." if k.key and len(k.key) > 12 else "sk-..."))
+            "key": (
+                k.prefix + "..."
+                if k.prefix
+                else (k.key[:12] + "..." if k.key and len(k.key) > 12 else "sk-...")
+            )
             if k.key
             else "sk-...",
             "prefix": k.prefix,
@@ -229,13 +253,19 @@ def delete_key(key: str, db: Session = Depends(get_db)):
 def get_projects(db: Session = Depends(get_db)):
     projects = db.query(Project).all()
     return [
-        {"id": str(p.id), "name": p.name, "created_at": p.created_at.isoformat() if p.created_at else None}
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
         for p in projects
     ]
 
 
 @router.patch("/projects/{project_id}")
-def update_project(project_id: str, data: Dict[str, Any], db: Session = Depends(get_db)):
+def update_project(
+    project_id: str, data: Dict[str, Any], db: Session = Depends(get_db)
+):
     pid = uuid.UUID(project_id)
     project = db.query(Project).filter(Project.id == pid).first()
     if not project:
@@ -247,7 +277,11 @@ def update_project(project_id: str, data: Dict[str, Any], db: Session = Depends(
 
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: str, db: Session = Depends(get_db), qdrant: QdrantClient = Depends(get_qdrant)):
+def delete_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    qdrant: QdrantClient = Depends(get_qdrant),
+):
     pid = uuid.UUID(project_id)
     project = db.query(Project).filter(Project.id == pid).first()
     if project:
@@ -260,7 +294,12 @@ def delete_project(project_id: str, db: Session = Depends(get_db), qdrant: Qdran
                     qdrant.delete(
                         collection_name=collection,
                         points_selector=models.Filter(
-                            must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=str(pid)))]
+                            must=[
+                                models.FieldCondition(
+                                    key="project_id",
+                                    match=models.MatchValue(value=str(pid)),
+                                )
+                            ]
                         ),
                     )
                 except Exception:
@@ -360,7 +399,10 @@ def get_memories(
 
     if api_key_name:
         # Resolve project IDs associated with this key name
-        project_ids = [k.project_id for k in db.query(ApiKey).filter(ApiKey.name == api_key_name).all()]
+        project_ids = [
+            k.project_id
+            for k in db.query(ApiKey).filter(ApiKey.name == api_key_name).all()
+        ]
         if project_ids:
             query = query.filter(EpisodicItem.project_id.in_(project_ids))
         else:
@@ -395,14 +437,22 @@ def update_memory(memory_id: str, data: Dict[str, Any], db: Session = Depends(ge
 
 
 @router.post("/memories/bulk-delete")
-def bulk_delete_memories(ids: List[str], db: Session = Depends(get_db), qdrant: QdrantClient = Depends(get_qdrant)):
+def bulk_delete_memories(
+    ids: List[str],
+    db: Session = Depends(get_db),
+    qdrant: QdrantClient = Depends(get_qdrant),
+):
     for mid in ids:
         delete_memory(mid, db, qdrant)
     return {"status": "bulk_deleted", "count": len(ids)}
 
 
 @router.delete("/memories/{memory_id}")
-def delete_memory(memory_id: str, db: Session = Depends(get_db), qdrant: QdrantClient = Depends(get_qdrant)):
+def delete_memory(
+    memory_id: str,
+    db: Session = Depends(get_db),
+    qdrant: QdrantClient = Depends(get_qdrant),
+):
     try:
         mid = uuid.UUID(memory_id)
         mem = db.query(EpisodicItem).filter(EpisodicItem.id == mid).first()
@@ -416,7 +466,11 @@ def delete_memory(memory_id: str, db: Session = Depends(get_db), qdrant: QdrantC
                 qdrant.delete(
                     collection_name="episodic_chunks",
                     points_selector=models.Filter(
-                        must=[models.FieldCondition(key="item_id", match=models.MatchValue(value=str(mid)))]
+                        must=[
+                            models.FieldCondition(
+                                key="item_id", match=models.MatchValue(value=str(mid))
+                            )
+                        ]
                     ),
                 )
             except Exception as e:
@@ -436,7 +490,11 @@ def prune_memories(payload: Dict[str, Any], db: Session = Depends(get_db)):
 
 # --- Vectors Visualizer ---
 @router.get("/vectors")
-def get_vectors(project_id: Optional[str] = None, visual_multiplier: float = 1.0, db: Session = Depends(get_db)):
+def get_vectors(
+    project_id: Optional[str] = None,
+    visual_multiplier: float = 1.0,
+    db: Session = Depends(get_db),
+):
     """
     Returns nodes and links for the D3 graph visualization.
     Now supports project-specific filtering for OmniSim simulations.
@@ -584,13 +642,17 @@ class PlaygroundRequest(BaseModel):
 
 @router.post("/playground/retrieve")
 async def playground_retrieve(
-    req: PlaygroundRequest, db: Session = Depends(get_db), qdrant: QdrantClient = Depends(get_qdrant)
+    req: PlaygroundRequest,
+    db: Session = Depends(get_db),
+    qdrant: QdrantClient = Depends(get_qdrant),
 ):
     """Test the MemoryRouter with a real Qdrant client for vector search."""
     from src.retrieve.router import MemoryRouter
 
     mr = MemoryRouter(db, qdrant)
-    result = await mr.route_and_retrieve(req.project_id, req.query, skip_llm=req.skip_llm, llm_config=req.llm_config)
+    result = await mr.route_and_retrieve(
+        req.project_id, req.query, skip_llm=req.skip_llm, llm_config=req.llm_config
+    )
     return result
 
 
@@ -612,7 +674,10 @@ def get_entities(
             pass
 
     if api_key_name:
-        project_ids = [k.project_id for k in db.query(ApiKey).filter(ApiKey.name == api_key_name).all()]
+        project_ids = [
+            k.project_id
+            for k in db.query(ApiKey).filter(ApiKey.name == api_key_name).all()
+        ]
         query = query.filter(Entity.project_id.in_(project_ids))
 
     entities = query.order_by(Entity.first_seen_at.desc()).limit(limit).all()
@@ -651,13 +716,19 @@ def delete_entity(entity_id: str, db: Session = Depends(get_db)):
     entity = db.query(Entity).filter(Entity.id == eid).first()
     if entity:
         # 1. Null out references in assertions to avoid FK violation (if CASCADE not set)
-        db.query(Assertion).filter(Assertion.subject_entity_id == eid).update({"subject_entity_id": None})
-        db.query(Assertion).filter(Assertion.object_entity_id == eid).update({"object_entity_id": None})
+        db.query(Assertion).filter(Assertion.subject_entity_id == eid).update(
+            {"subject_entity_id": None}
+        )
+        db.query(Assertion).filter(Assertion.object_entity_id == eid).update(
+            {"object_entity_id": None}
+        )
 
         # 2. Delete relations involving this entity (dangling entries)
         from src.db.models import Relation
 
-        db.query(Relation).filter((Relation.from_id == eid) | (Relation.to_id == eid)).delete()
+        db.query(Relation).filter(
+            (Relation.from_id == eid) | (Relation.to_id == eid)
+        ).delete()
 
         db.delete(entity)
         db.commit()
@@ -689,7 +760,10 @@ def get_learnings(
             pass
 
     if api_key_name:
-        project_ids = [k.project_id for k in db.query(ApiKey).filter(ApiKey.name == api_key_name).all()]
+        project_ids = [
+            k.project_id
+            for k in db.query(ApiKey).filter(ApiKey.name == api_key_name).all()
+        ]
         query = query.filter(Assertion.project_id.in_(project_ids))
 
     assertions = query.order_by(Assertion.last_seen_at.desc()).limit(limit).all()
@@ -709,7 +783,9 @@ def get_learnings(
 
 
 @router.get("/consolidations")
-def get_consolidations(limit: int = 100, project_id: Optional[str] = None, db: Session = Depends(get_db)):
+def get_consolidations(
+    limit: int = 100, project_id: Optional[str] = None, db: Session = Depends(get_db)
+):
     from src.synapses.models import ConsolidatedMemory
 
     query = db.query(ConsolidatedMemory)
@@ -736,7 +812,9 @@ def get_consolidations(limit: int = 100, project_id: Optional[str] = None, db: S
 
 
 @router.patch("/learnings/{assertion_id}")
-def update_learning(assertion_id: str, data: Dict[str, Any], db: Session = Depends(get_db)):
+def update_learning(
+    assertion_id: str, data: Dict[str, Any], db: Session = Depends(get_db)
+):
     aid = uuid.UUID(assertion_id)
     assertion = db.query(Assertion).filter(Assertion.id == aid).first()
     if not assertion:
@@ -788,7 +866,9 @@ def get_relations(limit: int = 200, db: Session = Depends(get_db)):
 
 
 @router.patch("/relations/{relation_id}")
-def update_relation(relation_id: str, data: Dict[str, Any], db: Session = Depends(get_db)):
+def update_relation(
+    relation_id: str, data: Dict[str, Any], db: Session = Depends(get_db)
+):
     rid = uuid.UUID(relation_id)
     rel = db.query(Relation).filter(Relation.id == rid).first()
     if not rel:
@@ -870,7 +950,9 @@ def save_llm_configs(data: Dict[str, Any], user: str = Depends(verify_admin)):
     # Validation: Ensure at most one primary
     primary_count = sum(1 for c in configs if c.get("is_primary"))
     if primary_count > 1:
-        raise HTTPException(status_code=400, detail="Only one configuration can be primary.")
+        raise HTTPException(
+            status_code=400, detail="Only one configuration can be primary."
+        )
 
     try:
         with open(CONFIG_FILE, "w") as f:
@@ -878,6 +960,8 @@ def save_llm_configs(data: Dict[str, Any], user: str = Depends(verify_admin)):
     except Exception as e:
         logger.critical("Failed to write to %s: %s", CONFIG_FILE, e)
         raise HTTPException(status_code=500, detail=f"Failed to write config file: {e}")
+
+    invalidate_json_config(CONFIG_FILE)
 
     # Update environment variables for the primary one for legacy/system compatibility
     primary = next((c for c in configs if c.get("is_primary")), None)
@@ -899,7 +983,10 @@ async def manual_condense(project_id: str, db: Session = Depends(get_db)):
         # Fetch all episodic items for this project
         items = db.query(EpisodicItem).filter(EpisodicItem.project_id == pid).all()
         if not items:
-            return {"status": "skipped", "message": "No episodic items found for this project."}
+            return {
+                "status": "skipped",
+                "message": "No episodic items found for this project.",
+            }
 
         condenser = Condenser(db)
         await condenser.distill(pid, items)
@@ -928,7 +1015,6 @@ async def manual_consolidate(project_id: str, db: Session = Depends(get_db)):
 
 @router.post("/config/llm/test")
 async def test_llm_config(config: Dict[str, Any], user: str = Depends(verify_admin)):
-
     base_url = config.get("baseUrl")
     model = config.get("model")
     api_key = config.get("apiKey")
@@ -946,7 +1032,9 @@ async def test_llm_config(config: Dict[str, Any], user: str = Depends(verify_adm
                 payload["max_tokens"] = 5
 
             response = await client.post(
-                f"{base_url}/chat/completions", json=payload, headers={"Authorization": f"Bearer {api_key}"}
+                f"{base_url}/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}"},
             )
             response.raise_for_status()
             latency = (time.time() - start_time) * 1000  # ms
@@ -980,6 +1068,8 @@ def get_system_config():
 def save_system_config(data: Dict[str, Any], user: str = Depends(verify_admin)):
     with open(SYSTEM_CONFIG_FILE, "w") as f:
         json.dump(data, f)
+
+    invalidate_json_config(SYSTEM_CONFIG_FILE)
 
     if "review_mode" in data:
         os.environ["REVIEW_MODE"] = data["review_mode"]
@@ -1022,7 +1112,9 @@ def save_synapse_config(data: Dict[str, Any], user: str = Depends(verify_admin))
 # --- Assertion Review Queue ---
 @router.get("/review/assertions/pending")
 def get_pending_assertions(
-    min_instruction_score: float = 0.0, min_safety_score: float = 0.0, db: Session = Depends(get_db)
+    min_instruction_score: float = 0.0,
+    min_safety_score: float = 0.0,
+    db: Session = Depends(get_db),
 ):
     """
     Fetch assertions that are pending_review, filtered by guardrail scores.
@@ -1054,7 +1146,9 @@ def get_pending_assertions(
 
 
 @router.post("/review/assertions/{assertion_id}/approve")
-def approve_assertion(assertion_id: str, data: Dict[str, Any], db: Session = Depends(get_db)):
+def approve_assertion(
+    assertion_id: str, data: Dict[str, Any], db: Session = Depends(get_db)
+):
     """Approve an extracted assertion, making it active in the memory graph."""
     try:
         aid = uuid.UUID(assertion_id)
@@ -1072,7 +1166,9 @@ def approve_assertion(assertion_id: str, data: Dict[str, Any], db: Session = Dep
 
 
 @router.post("/review/assertions/{assertion_id}/reject")
-def reject_assertion(assertion_id: str, data: Dict[str, Any], db: Session = Depends(get_db)):
+def reject_assertion(
+    assertion_id: str, data: Dict[str, Any], db: Session = Depends(get_db)
+):
     """Reject an assertion, preventing it from entering the memory graph."""
     try:
         aid = uuid.UUID(assertion_id)
@@ -1100,9 +1196,12 @@ def bulk_approve_assertions(data: Dict[str, Any], db: Session = Depends(get_db))
     try:
         uuid_ids = [uuid.UUID(i) for i in ids]
         db.query(Assertion).filter(Assertion.id.in_(uuid_ids)).update(
-            {"status": "approved", "reviewed_by": reviewed_by, "reviewed_at": now}, synchronize_session=False
+            {"status": "approved", "reviewed_by": reviewed_by, "reviewed_at": now},
+            synchronize_session=False,
         )
         db.commit()
         return {"status": "bulk_approved", "count": len(ids)}
     except ValueError:
-        raise HTTPException(status_code=400, detail="One or more invalid UUIDs provided")
+        raise HTTPException(
+            status_code=400, detail="One or more invalid UUIDs provided"
+        )

@@ -2,6 +2,7 @@ import os
 import json
 import logging
 from typing import List, Dict, Any, Optional
+from src.retrieve.token_metrics import build_token_metrics, log_token_metrics
 from openai import AsyncOpenAI
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
@@ -56,8 +57,7 @@ class MemoryRouter:
         Main entry point: Classification -> Retrieval -> Synthesis
         """
         # 1. Classify Intent
-        # If skip_llm is True, we might still need classification, or we could force "recall" if we want to be purely deterministic.
-        # But let's keep classification to show the "Traffic Control" decision.
+        classify_prompt = ROUTER_PROMPT.format(query=query)
         plan = await self._classify(query, llm_config)
         strategy = plan.get("strategy", "recall")
         keywords = plan.get("keywords", [])
@@ -102,6 +102,10 @@ class MemoryRouter:
         
         THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.8"))
 
+        sys_prompt = "You are a helpful assistant. Answer the user query based ONLY on the provided context."
+        user_msg = f"Context:\n{context}\n\nQuery: {query}"
+        synthesized = False
+
         # 2. Synthesize Answer (Brief)
         if skip_llm or confidence_score >= THRESHOLD:
             if not skip_llm:
@@ -109,10 +113,22 @@ class MemoryRouter:
             else:
                 answer = f"**TRAFFIC CONTROL: LLM SKIPPED**\n\nStrategy: {strategy}\n\nContext Retrieved:\n{context}"
         else:
-            answer = await self._synthesize(query, context, llm_config)
+            synthesized = True
+            answer = await self._synthesize(query, context, llm_config, sys_prompt=sys_prompt, user_msg=user_msg)
 
-        # 3. Cognitive Dynamics: Hebbian Learning
-        # Strengthen connections between retrieved sources
+        _, llm_model = get_current_client(llm_config)
+        token_metrics = build_token_metrics(
+            router_prompt=classify_prompt,
+            context=context,
+            query=query,
+            synthesized=synthesized,
+            sys_prompt=sys_prompt,
+            user_msg=user_msg,
+            model=llm_model,
+        )
+        log_token_metrics(token_metrics, project_id=project_id, query=query, strategy=strategy)
+
+        # 3. Cognitive Dynamics: Hebbian Learning        # Strengthen connections between retrieved sources
         if sources:
             try:
                 # Convert 'source' strings (UUIDs) back to UUID objects
@@ -144,7 +160,8 @@ class MemoryRouter:
         return {
             "answer": answer,
             "sources": sources,
-            "strategy": strategy
+            "strategy": strategy,
+            "token_metrics": token_metrics,
         }
 
     async def _classify(self, query: str, llm_config: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
@@ -306,21 +323,29 @@ class MemoryRouter:
         
         return context_parts, sources, max_conf
 
-    async def _synthesize(self, query: str, context: str, llm_config: Optional[Dict[str, str]] = None) -> str:
+    async def _synthesize(
+        self,
+        query: str,
+        context: str,
+        llm_config: Optional[Dict[str, str]] = None,
+        *,
+        sys_prompt: Optional[str] = None,
+        user_msg: Optional[str] = None,
+    ) -> str:
         """Combine context and query into a natural language response using the active LLM."""
         try:
             use_client, model = get_current_client(llm_config)
 
-            sys_prompt = "You are a helpful assistant. Answer the user query based ONLY on the provided context."
-            user_msg = f"Context:\n{context}\n\nQuery: {query}"
-            
+            sys_prompt = sys_prompt or "You are a helpful assistant. Answer the user query based ONLY on the provided context."
+            user_msg = user_msg or f"Context:\n{context}\n\nQuery: {query}"
+
             response = await use_client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": user_msg}
+                    {"role": "user", "content": user_msg},
                 ],
-                temperature=0.0
+                temperature=0.0,
             )
             return response.choices[0].message.content
         except Exception as e:

@@ -36,7 +36,10 @@ AGENTS.md
 SKILL_MAP.md
 tasks.md
 learnings.md
-tests/
+# Local-only / scratch tests (not CI)
+tests/repro_*.py
+tests/test_omnisim_scenarios.py
+tests/last_result.log
 prompts/
 docs/
 scratch/

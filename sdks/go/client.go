@@ -78,7 +78,7 @@ func (c *Client) QueryAssertions(query string) ([]Assertion, error) {
 	// Current admin.py has GET /learnings which returns all.
 	// For search/query, likely need a new endpoint or filter.
 	// Supporting generic GET /learnings for now.
-	
+
 	req, err := http.NewRequest("GET", c.BaseURL+"/api/admin/learnings", nil)
 	if err != nil {
 		return nil, err
@@ -105,18 +105,57 @@ func (c *Client) QueryAssertions(query string) ([]Assertion, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&rawAssertions); err != nil {
 		return nil, err
 	}
-	
+
 	var assertions []Assertion
 	for _, raw := range rawAssertions {
+		formatted := stringFromMap(raw, "formatted_statement")
+		if formatted == "" {
+			formatted = stringFromMap(raw, "statement")
+		}
 		a := Assertion{
-			ID: raw["id"].(string),
-			// Mapping 'statement' to Formatted for now, as individual fields strictly might not be in the 'view'
-			Formatted: raw["statement"].(string), 
-			Confidence: raw["confidence"].(float64),
-			Status: raw["status"].(string),
+			ID:          stringFromMap(raw, "id"),
+			ProjectID:   stringFromMap(raw, "project_id"),
+			SubjectText: stringFromMap(raw, "subject_text"),
+			Predicate:   stringFromMap(raw, "predicate"),
+			ObjectText:  stringFromMap(raw, "object_text"),
+			Confidence:  floatFromMap(raw, "confidence"),
+			Status:      stringFromMap(raw, "status"),
+			Formatted:   formatted,
 		}
 		assertions = append(assertions, a)
 	}
 	return assertions, nil
+}
+
+func stringFromMap(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch s := v.(type) {
+	case string:
+		return s
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func floatFromMap(m map[string]interface{}, key string) float64 {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil {
+			return 0
+		}
+		return f
+	default:
+		return 0
+	}
 }
 

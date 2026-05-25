@@ -33,31 +33,30 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
-    """
-    Initialize the database tables and apply Alembic migrations.
-    """
-    # Import all models to register them with Base.metadata
+    """Apply Alembic migrations on startup. Fails fast if migrations cannot run."""
+    # Import all models so Alembic autogenerate sees the full metadata graph.
     from . import models
     try:
         from src.synapses import models as synapse_models
     except ImportError:
         pass
-        
-    # Programmatically run Alembic migrations on startup
+
     import logging
+    from alembic import command
+    from alembic.config import Config
+
     log = logging.getLogger("init_db")
     log.info("Running database migrations via Alembic...")
     try:
-        from alembic.config import Config
-        from alembic import command
         alembic_cfg = Config("alembic.ini")
         command.upgrade(alembic_cfg, "head")
         log.info("Database migrations completed successfully.")
     except Exception as e:
-        log.error(f"Failed to run database migrations: {e}")
-        # Fallback to create_all if alembic configuration fails
-        log.info("Falling back to Base.metadata.create_all...")
-        Base.metadata.create_all(bind=engine)
+        log.error("Failed to run database migrations: %s", e, exc_info=True)
+        raise RuntimeError(
+            "Database migration failed; refusing to start with an unmigrated schema. "
+            "Check DATABASE_URL and run `alembic upgrade head` manually."
+        ) from e
 
 
 def get_db():

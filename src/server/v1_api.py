@@ -5,8 +5,17 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from qdrant_client import QdrantClient
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+
 from src.agents.ingress import IngressAgent
-from src.db.models import ApiKey, Assertion, Entity, EpisodicItem, OntologyNode, Project, Relation
+from src.db.models import (
+    ApiKey,
+    Assertion,
+    Entity,
+    EpisodicItem,
+    OntologyNode,
+    Project,
+    Relation,
+)
 from src.db.schemas import (
     EntityCreate,
     EpisodicBulkCreate,
@@ -36,7 +45,9 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
         plain_key = f"sk-{uuid.uuid4()}"
         hashed = hash_key(plain_key)
         prefix = plain_key[:12]
-        ak = ApiKey(key=hashed, prefix=prefix, name=data.api_key_name, project_id=project.id)
+        ak = ApiKey(
+            key=hashed, prefix=prefix, name=data.api_key_name, project_id=project.id
+        )
         db.add(ak)
 
     db.commit()
@@ -51,7 +62,11 @@ def get_projects(limit: int = 100, db: Session = Depends(get_db)):
 
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: uuid.UUID, db: Session = Depends(get_db), qdrant: QdrantClient = Depends(get_qdrant)):
+def delete_project(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    qdrant: QdrantClient = Depends(get_qdrant),
+):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -65,7 +80,12 @@ def delete_project(project_id: uuid.UUID, db: Session = Depends(get_db), qdrant:
                 qdrant.delete(
                     collection_name=collection,
                     points_selector=models.Filter(
-                        must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=str(project_id)))]
+                        must=[
+                            models.FieldCondition(
+                                key="project_id",
+                                match=models.MatchValue(value=str(project_id)),
+                            )
+                        ]
                     ),
                 )
             except Exception:
@@ -73,7 +93,9 @@ def delete_project(project_id: uuid.UUID, db: Session = Depends(get_db), qdrant:
     except Exception as e:
         import logging
 
-        logging.getLogger("v1_api").warning(f"Failed to delete project vectors from Qdrant: {e}")
+        logging.getLogger("v1_api").warning(
+            f"Failed to delete project vectors from Qdrant: {e}"
+        )
 
     # 2. Delete from DB (cascades to all other child tables)
     db.delete(project)
@@ -103,7 +125,11 @@ def get_episodic_items(
 
     if api_key_name:
         # Resolve project IDs associated with this key name
-        project_ids = db.execute(select(ApiKey.project_id).where(ApiKey.name == api_key_name)).scalars().all()
+        project_ids = (
+            db.execute(select(ApiKey.project_id).where(ApiKey.name == api_key_name))
+            .scalars()
+            .all()
+        )
         if project_ids:
             stmt = stmt.where(EpisodicItem.project_id.in_(project_ids))
         else:
@@ -161,6 +187,7 @@ async def bulk_ingest(data: EpisodicBulkCreate, background_tasks: BackgroundTask
 
 async def run_bulk_ingest(data: EpisodicBulkCreate):
     from qdrant_client import QdrantClient
+
     from src.agents.ingress import IngressAgent
     from src.db.session import SessionLocal
 
@@ -194,12 +221,20 @@ def create_graph(data: GraphCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Project not found")
         response = {"id": str(project.id), "name": project.name, "status": "existing"}
         if data.api_key_name:
-            ak = db.query(ApiKey).filter(ApiKey.name == data.api_key_name, ApiKey.project_id == project.id).first()
+            ak = (
+                db.query(ApiKey)
+                .filter(
+                    ApiKey.name == data.api_key_name, ApiKey.project_id == project.id
+                )
+                .first()
+            )
             if ak:
                 response["api_key"] = (
                     ak.prefix + "..."
                     if ak.prefix
-                    else (ak.key[:12] + "..." if ak.key and len(ak.key) > 12 else "sk-...")
+                    else (
+                        ak.key[:12] + "..." if ak.key and len(ak.key) > 12 else "sk-..."
+                    )
                 )
         return response
 
@@ -213,7 +248,9 @@ def create_graph(data: GraphCreate, db: Session = Depends(get_db)):
         plain_key = f"sk-{uuid.uuid4()}"
         hashed = hash_key(plain_key)
         prefix = plain_key[:12]
-        ak = ApiKey(key=hashed, prefix=prefix, name=data.api_key_name, project_id=project.id)
+        ak = ApiKey(
+            key=hashed, prefix=prefix, name=data.api_key_name, project_id=project.id
+        )
         db.add(ak)
 
     db.commit()
@@ -245,7 +282,9 @@ async def _condense_project_background(project_id: uuid.UUID) -> None:
 
 
 @router.post("/projects/{project_id}/condense")
-async def trigger_condensation(project_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def trigger_condensation(
+    project_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
+):
     """
     Trigger the distillation process for all episodic items in this project.
     Now supports both single UUID and JSON list of UUIDs (to fix 422 errors from scripts).
@@ -273,11 +312,19 @@ async def trigger_condensation(project_id: str, background_tasks: BackgroundTask
         items = db.execute(stmt).scalars().all()
 
         if not items:
-            results.append({"project_id": str(pid), "status": "skipped", "message": "No items to condense"})
+            results.append(
+                {
+                    "project_id": str(pid),
+                    "status": "skipped",
+                    "message": "No items to condense",
+                }
+            )
             continue
 
         background_tasks.add_task(_condense_project_background, pid)
-        results.append({"project_id": str(pid), "status": "started", "items_count": len(items)})
+        results.append(
+            {"project_id": str(pid), "status": "started", "items_count": len(items)}
+        )
 
     return {"status": "processed", "results": results}
 
@@ -361,7 +408,9 @@ def get_relations(
             stmt = stmt.where(Relation.project_id == project_id)
     if entity_id:
         # Search for relations where entity is either source or target
-        stmt = stmt.where(or_(Relation.from_id == entity_id, Relation.to_id == entity_id))
+        stmt = stmt.where(
+            or_(Relation.from_id == entity_id, Relation.to_id == entity_id)
+        )
 
     stmt = stmt.limit(limit)
     relations = db.execute(stmt).scalars().all()
@@ -383,7 +432,9 @@ def get_relations(
 
 
 @router.post("/projects/{project_id}/ontology")
-def update_ontology(project_id: uuid.UUID, data: OntologyCreate, db: Session = Depends(get_db)):
+def update_ontology(
+    project_id: uuid.UUID, data: OntologyCreate, db: Session = Depends(get_db)
+):
     """
     Update or create multiple ontology nodes for a specific project.
     """
@@ -399,7 +450,12 @@ def update_ontology(project_id: uuid.UUID, data: OntologyCreate, db: Session = D
             .first()
         )
         if not exists:
-            node = OntologyNode(project_id=project_id, label=label, node_type="entity_type", confidence=1.0)
+            node = OntologyNode(
+                project_id=project_id,
+                label=label,
+                node_type="entity_type",
+                confidence=1.0,
+            )
             db.add(node)
 
     for label in data.edge_types:
@@ -413,7 +469,12 @@ def update_ontology(project_id: uuid.UUID, data: OntologyCreate, db: Session = D
             .first()
         )
         if not exists:
-            node = OntologyNode(project_id=project_id, label=label, node_type="edge_type", confidence=1.0)
+            node = OntologyNode(
+                project_id=project_id,
+                label=label,
+                node_type="edge_type",
+                confidence=1.0,
+            )
             db.add(node)
 
     db.commit()
@@ -428,7 +489,11 @@ def get_ontology(project_id: uuid.UUID, db: Session = Depends(get_db)):
     entity_types = [n.label for n in nodes if n.node_type == "entity_type"]
     edge_types = [n.label for n in nodes if n.node_type == "edge_type"]
 
-    return {"project_id": str(project_id), "entity_types": entity_types, "edge_types": edge_types}
+    return {
+        "project_id": str(project_id),
+        "entity_types": entity_types,
+        "edge_types": edge_types,
+    }
 
 
 @router.get("/projects/{project_id}/graph/analytics")
@@ -465,7 +530,12 @@ def get_assertions(
         # Check if subject is a UUID (meaning entity_id) or text
         try:
             sid = uuid.UUID(subject)
-            stmt = stmt.where(or_(Assertion.subject_entity_id == sid, Assertion.object_entity_id == sid))
+            stmt = stmt.where(
+                or_(
+                    Assertion.subject_entity_id == sid,
+                    Assertion.object_entity_id == sid,
+                )
+            )
         except ValueError:
             stmt = stmt.where(Assertion.subject_text.ilike(f"%{subject}%"))
 
@@ -498,10 +568,18 @@ def export_jsonl(project_id: str, db: Session = Depends(get_db)):
     # but for MVP returning a line-delimited string or list
 
     # 1. Fetch all items
-    items = db.execute(select(EpisodicItem).where(EpisodicItem.project_id == project_id)).scalars().all()
+    items = (
+        db.execute(select(EpisodicItem).where(EpisodicItem.project_id == project_id))
+        .scalars()
+        .all()
+    )
 
     # 2. Fetch all assertions
-    assertions = db.execute(select(Assertion).where(Assertion.project_id == project_id)).scalars().all()
+    assertions = (
+        db.execute(select(Assertion).where(Assertion.project_id == project_id))
+        .scalars()
+        .all()
+    )
 
     import json
 

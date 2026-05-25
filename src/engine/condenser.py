@@ -9,7 +9,9 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
 from src.config import settings
+from src.config_cache import load_json_config
 from src.db.models import Assertion, EpisodicItem, OntologyNode, Policy
 from src.engine.deterministic import DeterministicCondenser
 from src.engine.edge_synthesizer import EdgeSynthesizer
@@ -47,7 +49,10 @@ def build_proof_envelope(
 def verify_proof_envelope(envelope: Dict[str, Any]) -> bool:
     """Verify an RFC-0002 proof envelope HMAC signature."""
     try:
-        unsigned = {"payload": envelope["payload"], "provenance": envelope["provenance"]}
+        unsigned = {
+            "payload": envelope["payload"],
+            "provenance": envelope["provenance"],
+        }
         expected_sig = envelope["signature"]
     except KeyError:
         return False
@@ -74,15 +79,14 @@ class Condenser:
             return
 
         # Check if condensation is paused
-        config_path = "system_config.json"
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    if json.load(f).get("condensation_paused", False):
-                        logger.info(f"[Condenser] Condensation is paused. Skipping batch for project {project_id}.")
-                        return
-            except Exception:
-                pass
+        system_config = load_json_config(
+            "system_config.json", settings.CONFIG_CACHE_TTL_SECONDS
+        )
+        if system_config.get("condensation_paused", False):
+            logger.info(
+                f"[Condenser] Condensation is paused. Skipping batch for project {project_id}."
+            )
+            return
 
         from src.engine.job_history import log_job
 
@@ -100,7 +104,11 @@ class Condenser:
                         temporal_step = int(step)
 
             # 1. Pipeline components
-            logger.info("Starting distillation for %s items. Project: %s", len(items), project_id)
+            logger.info(
+                "Starting distillation for %s items. Project: %s",
+                len(items),
+                project_id,
+            )
             canon = EntityCanonicalizer(self.db)
             edge_synth = EdgeSynthesizer(self.db)
             logger.debug("Components initialized.")
@@ -118,7 +126,8 @@ class Condenser:
             ontology_labels = (
                 self.db.execute(
                     select(OntologyNode.label).where(
-                        OntologyNode.project_id == project_id, OntologyNode.node_type == "entity_type"
+                        OntologyNode.project_id == project_id,
+                        OntologyNode.node_type == "entity_type",
                     )
                 )
                 .scalars()
@@ -128,18 +137,24 @@ class Condenser:
 
             for item in items:
                 # Offload CPU-bound NER model inference to thread pool
-                future = shard.submit(self.ner.extract_entities, item.text, labels=target_labels)
+                future = shard.submit(
+                    self.ner.extract_entities, item.text, labels=target_labels
+                )
                 ner_futures.append(future)
 
             # Collect NER results
-            logger.info(f"[Condenser] Waiting for {len(ner_futures)} NER futures (GLiNER check)...")
+            logger.info(
+                f"[Condenser] Waiting for {len(ner_futures)} NER futures (GLiNER check)..."
+            )
             from src.engine.stopwords import MIN_ENTITY_LENGTH, get_stop_words
 
             _sw = get_stop_words()
             for i, future in enumerate(ner_futures):
                 try:
                     ner_results = future.result()
-                    logger.debug("NER future %s returned %s entities.", i, len(ner_results))
+                    logger.debug(
+                        "NER future %s returned %s entities.", i, len(ner_results)
+                    )
                     for res in ner_results:
                         ent_text = res["text"]
                         # Entity bounding: skip generic / short / stop-word tokens
@@ -148,7 +163,9 @@ class Condenser:
                         all_candidate_entities.append(
                             ExtractedEntity(
                                 name=ent_text,
-                                type=res["label"].lower() if res["label"] else "concept",
+                                type=res["label"].lower()
+                                if res["label"]
+                                else "concept",
                                 aliases=[],
                                 confidence=res["score"],
                             )
@@ -164,7 +181,11 @@ class Condenser:
             # --- Phase 1: Deterministic L3 (Fast Path) ---
             logger.info("[Condenser] Running Deterministic L3 extraction...")
             dc = DeterministicCondenser()
-            det_result = dc.process(full_text, ner_entities=all_candidate_entities, ontology_nodes=ontology_labels)
+            det_result = dc.process(
+                full_text,
+                ner_entities=all_candidate_entities,
+                ontology_nodes=ontology_labels,
+            )
 
             # Seed our fact list with L3 findings
             extracted_facts.extend(det_result.get("facts", []))
@@ -210,7 +231,9 @@ class Condenser:
                             }
                             extracted_facts.append(fact)
                 except Exception as e:
-                    logger.error(f"[Condenser] LLM enrichment failed: {e}. Progressing with L3 results only.")
+                    logger.error(
+                        f"[Condenser] LLM enrichment failed: {e}. Progressing with L3 results only."
+                    )
 
             # 3. Resolve all entities (NER + LLM + Deterministic combined)
             res_map = canon.resolve(str(project_id), all_candidate_entities)
@@ -220,12 +243,19 @@ class Condenser:
             logger.info("Synthesizing edges for %s entities...", len(entity_ids))
 
             # Synthesize concept-to-concept edges
-            batch_prov = {"batch_ts": datetime.utcnow().isoformat(), "item_ids": [str(item.id) for item in items]}
-            edge_count = edge_synth.synthesize(project_id, entity_ids, batch_prov, temporal_step=temporal_step)
+            batch_prov = {
+                "batch_ts": datetime.utcnow().isoformat(),
+                "item_ids": [str(item.id) for item in items],
+            }
+            edge_count = edge_synth.synthesize(
+                project_id, entity_ids, batch_prov, temporal_step=temporal_step
+            )
             logger.info("Synthesized %s edges.", edge_count)
 
             # 3. Create Artifacts with Proof Envelopes (Parallelized)
-            source_hashes = [hashlib.sha256(item.text.encode()).hexdigest() for item in items]
+            source_hashes = [
+                hashlib.sha256(item.text.encode()).hexdigest() for item in items
+            ]
 
             # Phase 1: Filter & Prepare (Parallel)
             # We check duplicates synchronously (DB read), then generate envelopes/guardrails in threads
@@ -253,17 +283,30 @@ class Condenser:
                     if not existing:
                         # Submit for heavy processing (Guardrails + Crypto + Resolution)
                         future = shard.submit(
-                            self._prepare_assertion, project_id, fact, source_hashes, res_map, temporal_step
+                            self._prepare_assertion,
+                            project_id,
+                            fact,
+                            source_hashes,
+                            res_map,
+                            temporal_step,
                         )
                         assertion_futures.append(future)
 
                 elif f_type == "policy":
                     # Policies usually vastly fewer, we can just process inline or parallelize similarly
                     # For now let's parallelize for consistency
-                    future = shard.submit(self._prepare_policy, project_id, fact, source_hashes, temporal_step)
+                    future = shard.submit(
+                        self._prepare_policy,
+                        project_id,
+                        fact,
+                        source_hashes,
+                        temporal_step,
+                    )
                     assertion_futures.append(future)
                 else:
-                    logger.warning(f"[Condenser] Fact missing or has unknown type: {fact}")
+                    logger.warning(
+                        f"[Condenser] Fact missing or has unknown type: {fact}"
+                    )
 
             # Phase 2: Commit (Sequential Main Thread)
             logger.debug("Waiting for %s assertion futures...", len(assertion_futures))
@@ -289,10 +332,14 @@ class Condenser:
                     synapse_engine = SynapseEngine(self.db)
                     # Collect IDs of newly created assertions
                     new_assertion_ids = [
-                        res.id for res in [f.result() for f in assertion_futures] if res and isinstance(res, Assertion)
+                        res.id
+                        for res in [f.result() for f in assertion_futures]
+                        if res and isinstance(res, Assertion)
                     ]
                     if new_assertion_ids:
-                        logger.info(f"[Condenser] Emitting synapses for {len(new_assertion_ids)} assertions...")
+                        logger.info(
+                            f"[Condenser] Emitting synapses for {len(new_assertion_ids)} assertions..."
+                        )
                         # Pass IDs and temporal step for relationship analysis
                         synapse_engine.create_synapses_from_condensation(
                             project_id, new_assertion_ids, temporal_step=temporal_step
@@ -308,10 +355,24 @@ class Condenser:
 
             finished_at = datetime.utcnow()
             duration = int((finished_at - started_at).total_seconds() * 1000)
-            log_job(job_id, f"Condensation: {project_id}", "success", started_at, finished_at, duration)
+            log_job(
+                job_id,
+                f"Condensation: {project_id}",
+                "success",
+                started_at,
+                finished_at,
+                duration,
+            )
         except Exception as e:
             logger.error(f"[Condenser] Distillation failed: {e}")
-            log_job(job_id, f"Condensation: {project_id}", "error", started_at, datetime.utcnow(), error=str(e))
+            log_job(
+                job_id,
+                f"Condensation: {project_id}",
+                "error",
+                started_at,
+                datetime.utcnow(),
+                error=str(e),
+            )
             self.db.rollback()
             raise e
 
@@ -354,17 +415,17 @@ class Condenser:
         assertion_text = f"{subj} {f_pred} {obj}"
         logger.debug("Running guardrail check on: %s", assertion_text)
         guardrail_result = guardrail.check(assertion_text)
-        logger.debug("Guardrail result: should_block=%s", guardrail_result["should_block"])
+        logger.debug(
+            "Guardrail result: should_block=%s", guardrail_result["should_block"]
+        )
 
         # Determine status based on review mode and guardrail scores
-        config_path = "system_config.json"
-        review_mode = os.getenv("REVIEW_MODE", "manual").lower()
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    review_mode = json.load(f).get("review_mode", review_mode)
-            except Exception:
-                pass
+        system_config = load_json_config(
+            "system_config.json", settings.CONFIG_CACHE_TTL_SECONDS
+        )
+        review_mode = system_config.get(
+            "review_mode", os.getenv("REVIEW_MODE", "manual").lower()
+        )
         rejection_reason = None
 
         if review_mode == "auto":
@@ -417,7 +478,11 @@ class Condenser:
         )
 
     def _prepare_policy(
-        self, project_id: uuid.UUID, policy_data: dict, source_hashes: List[str], temporal_step: Optional[int] = None
+        self,
+        project_id: uuid.UUID,
+        policy_data: dict,
+        source_hashes: List[str],
+        temporal_step: Optional[int] = None,
     ) -> Policy:
         policy_id = uuid.uuid4()
         envelope = build_proof_envelope(

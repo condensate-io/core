@@ -43,7 +43,7 @@ go get github.com/condensate/condensate-go-sdk
 git clone https://github.com/condensate-io/core
 cd core
 cp .env.example .env
-# Edit .env with your settings (see Environment Variables below)
+# Edit .env with your settings (see Configuration below)
 ```
 
 ### 2. Start the Stack
@@ -73,90 +73,11 @@ result = client.retrieve("What are the user's preferences?")
 print(result["answer"])
 ```
 
-## Environment Variables
+## Configuration
 
-Copy `.env.example` to `.env` and configure:
+All environment variables, Docker Compose overrides, and runtime JSON config files (`llm_config.json`, `system_config.json`) are documented in **[docs/configuration.md](docs/configuration.md)**.
 
-### Core Services
-
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://condensate:password@db:5432/condensate_db` |
-| `QDRANT_HOST` | Qdrant hostname (used in docker-compose) | `qdrant` |
-| `QDRANT_PORT` | Qdrant port | `6333` |
-| `QDRANT_URL` | Full Qdrant URL — overrides HOST+PORT when set | `http://{QDRANT_HOST}:{QDRANT_PORT}` |
-| `QDRANT_API_KEY` | Qdrant API key (required for Qdrant Cloud) | — |
-
-### LLM Provider
-
-| Variable | Description | Default |
-|---|---|---|
-| `LLM_ENABLED` | Enable LLM-based extraction pipeline | `false` |
-| `LLM_BASE_URL` | OpenAI-compatible base URL | `http://ollama:11434/v1` |
-| `LLM_API_KEY` | LLM provider API key | `ollama` |
-| `LLM_MODEL` | Model name for extraction | `phi3` |
-
-### NER Model
-
-| Variable | Description | Default |
-|---|---|---|
-| `HF_TOKEN` | Hugging Face token — enables authenticated downloads and higher rate limits for the ModernBERT NER model. Strongly recommended to avoid cold-start failures. | — |
-
-### Security
-
-| Variable | Description | Default |
-|---|---|---|
-| `CONDENSATE_SECRET` | HMAC secret for signing Proof Envelopes | `changeme_in_production` |
-| `ADMIN_USERNAME` | Admin dashboard username | `admin` |
-| `ADMIN_PASSWORD` | Admin dashboard password | `admin` |
-
-### Memory Pipeline
-
-| Variable | Description | Default |
-|---|---|---|
-| `REVIEW_MODE` | Assertion review mode: `manual` (HITL queue) or `auto` | `manual` |
-| `INSTRUCTION_BLOCK_THRESHOLD` | Guardrail threshold for instruction injection (0.0–1.0) | `0.5` |
-| `SAFETY_BLOCK_THRESHOLD` | Guardrail threshold for safety violations (0.0–1.0) | `0.7` |
-
-### Ingestion
-
-| Variable | Description | Default |
-|---|---|---|
-| `INGEST_WORKERS` | Parallel worker threads for `ingest_codebase.py` | `8` |
-| `UPLOAD_DIR` | Directory for file uploads (relative to app root) | `uploads` |
-
-### SDK / Client
-
-| Variable | Description | Default |
-|---|---|---|
-| `CONDENSATE_URL` | Server URL used by the Python SDK CLI | `http://localhost:8000` |
-| `CONDENSATE_API_KEY` | API key used by the Python SDK CLI | — |
-
-### Data Migration (optional)
-
-| Variable | Description | Default |
-|---|---|---|
-| `LOCALMEMCP_PATH` | Path to LocalMem data directory for bootstrap import | `/app/localmemcp_data` |
-| `OLD_QDRANT_HOST` | Old Qdrant host for data migration | `host.docker.internal` |
-| `OLD_QDRANT_PORT` | Old Qdrant port for data migration | `6333` |
-
-### Using a Cloud LLM (OpenAI)
-
-```env
-LLM_ENABLED=true
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=sk-openai-xxxx
-LLM_MODEL=gpt-4o-mini
-```
-
-### Using a Local LLM (Ollama)
-
-```env
-LLM_ENABLED=true
-LLM_BASE_URL=http://ollama:11434/v1
-LLM_API_KEY=ollama
-LLM_MODEL=phi3
-```
+Quick start: copy `.env.example` to `.env`, then adjust database, Qdrant, LLM, and security settings. The Admin Dashboard (Settings page) can further tune LLM profiles and review mode without editing files directly.
 
 ## SDKs
 
@@ -224,6 +145,9 @@ This triggers the GitHub Actions release workflow which:
 ```
 
 ## Documentation Index
+
+### ⚙️ Operations
+- [Configuration](docs/configuration.md)
 
 ### 🏛️ Governance & Standards
 - [Governance](GOVERNANCE.md)

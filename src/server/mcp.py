@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
+
 from src.agents.ingress import IngressAgent
 from src.db.models import ApiKey
 from src.db.schemas import EpisodicItemCreate
@@ -39,7 +40,9 @@ async def call_tool(
     if call.name == "store_memory":
         try:
             # Prefer project_id from arguments for multi-project simulations
-            target_project_id = call.arguments.get("project_id") or str(api_key.project_id)
+            target_project_id = call.arguments.get("project_id") or str(
+                api_key.project_id
+            )
             agent = IngressAgent(db, qdrant_client)
 
             item_data = EpisodicItemCreate(
@@ -55,11 +58,16 @@ async def call_tool(
             new_item = agent.process_memory(item_data)
 
             # 2. Schedule Condensation (Background)
-            background_tasks.add_task(run_async_condensation, str(target_project_id), str(new_item.id))
+            background_tasks.add_task(
+                run_async_condensation, str(target_project_id), str(new_item.id)
+            )
 
             return {
                 "content": [
-                    {"type": "text", "text": f"Episodic Item stored with ID: {new_item.id}. Condensation queued."}
+                    {
+                        "type": "text",
+                        "text": f"Episodic Item stored with ID: {new_item.id}. Condensation queued.",
+                    }
                 ]
             }
         except Exception as e:
@@ -83,7 +91,11 @@ async def call_tool(
         db.add(ds)
         db.commit()
         schedule_data_source(ds)
-        return {"content": [{"type": "text", "text": f"Data Source created with ID: {ds.id}"}]}
+        return {
+            "content": [
+                {"type": "text", "text": f"Data Source created with ID: {ds.id}"}
+            ]
+        }
 
     elif call.name == "trigger_data_source":
         from src.engine.scheduler import trigger_data_source
@@ -91,12 +103,15 @@ async def call_tool(
         try:
             sid = uuid.UUID(call.arguments.get("source_id"))
             trigger_data_source(sid)
-            return {"content": [{"type": "text", "text": f"Triggered job for source {sid}"}]}
+            return {
+                "content": [{"type": "text", "text": f"Triggered job for source {sid}"}]
+            }
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid Source UUID")
 
     elif call.name == "query_graph":
         from sqlalchemy import or_, select
+
         from src.db.models import Assertion, Entity
 
         project_id = api_key.project_id
@@ -108,7 +123,10 @@ async def call_tool(
             select(Entity)
             .where(
                 Entity.project_id == project_id,
-                or_(Entity.canonical_name.ilike(f"%{query}%"), Entity.type.ilike(f"%{query}%")),
+                or_(
+                    Entity.canonical_name.ilike(f"%{query}%"),
+                    Entity.type.ilike(f"%{query}%"),
+                ),
             )
             .limit(limit)
         )
@@ -135,7 +153,9 @@ async def call_tool(
         if not entities:
             result_text += "No matching entities found.\n"
         for e in entities:
-            result_text += f"- [{e.type}] {e.canonical_name} (Confidence: {e.confidence})\n"
+            result_text += (
+                f"- [{e.type}] {e.canonical_name} (Confidence: {e.confidence})\n"
+            )
 
         result_text += "\n--- Assertions discovered ---\n"
         if not assertions:
@@ -165,7 +185,9 @@ async def call_tool(
             for node in centrality:
                 result_text += f"- Node: {node.get('label', node.get('id'))} (Score: {node.get('score', 0):.4f})\n"
 
-            result_text += "\n--- Louvain Communities (Consolidated Semantic Subgraphs) ---\n"
+            result_text += (
+                "\n--- Louvain Communities (Consolidated Semantic Subgraphs) ---\n"
+            )
             if not communities:
                 result_text += "No communities calculated yet.\n"
             for comm in communities[:5]:  # show first 5 clusters
@@ -208,17 +230,29 @@ def list_tools():
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
-                    "source_type": {"type": "string", "enum": ["url", "file", "api", "codebase"]},
+                    "source_type": {
+                        "type": "string",
+                        "enum": ["url", "file", "api", "codebase"],
+                    },
                     "configuration": {
                         "type": "object",
                         "properties": {
-                            "path": {"type": "string", "description": "Absolute directory path for codebase ingestion"},
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute directory path for codebase ingestion",
+                            },
                             "max_file_size": {
                                 "type": "integer",
                                 "description": "Ceiling file size in bytes (default 64KB)",
                             },
-                            "allowed_extensions": {"type": "array", "items": {"type": "string"}},
-                            "ignore_patterns": {"type": "array", "items": {"type": "string"}},
+                            "allowed_extensions": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "ignore_patterns": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
                         },
                     },
                 },
@@ -244,7 +278,10 @@ def list_tools():
                         "type": "string",
                         "description": "Term to search for within entity names or assertion statements",
                     },
-                    "limit": {"type": "integer", "description": "Maximum number of results to return (default 50)"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default 50)",
+                    },
                 },
                 "required": ["query"],
             },
@@ -255,7 +292,10 @@ def list_tools():
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Max number of central nodes to retrieve (default 20)"}
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max number of central nodes to retrieve (default 20)",
+                    }
                 },
             },
         },
@@ -298,7 +338,11 @@ def run_async_condensation(project_id: str, item_id: str):
     # --- Session 1: fetch only, released immediately ---
     fetch_db = SessionLocal()
     try:
-        item_obj = fetch_db.query(EpisodicItem).filter(EpisodicItem.id == uuid.UUID(item_id)).first()
+        item_obj = (
+            fetch_db.query(EpisodicItem)
+            .filter(EpisodicItem.id == uuid.UUID(item_id))
+            .first()
+        )
         if item_obj is None:
             logger.warning(f"Item {item_id} not found, skipping condensation.")
             return
@@ -320,11 +364,26 @@ def run_async_condensation(project_id: str, item_id: str):
         loop.close()
         finished = datetime.now(timezone.utc)
         duration = int((finished - started).total_seconds() * 1000)
-        _log_job(job_id, f"Condensation [{item_id[:8]}]", "success", started, finished, duration)
+        _log_job(
+            job_id,
+            f"Condensation [{item_id[:8]}]",
+            "success",
+            started,
+            finished,
+            duration,
+        )
     except Exception as e:
         finished = datetime.now(timezone.utc)
         duration = int((finished - started).total_seconds() * 1000)
-        _log_job(job_id, f"Condensation [{item_id[:8]}]", "error", started, finished, duration, str(e))
+        _log_job(
+            job_id,
+            f"Condensation [{item_id[:8]}]",
+            "error",
+            started,
+            finished,
+            duration,
+            str(e),
+        )
         logger.error(f"Background condensation failed for item {item_id}: {e}")
     finally:
         condense_db.close()  # ← connection returned to pool here
