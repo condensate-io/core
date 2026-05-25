@@ -80,6 +80,9 @@ jobs:
           - id: mcp-bridge
             working_directory: sdks/mcp-bridge
             cache_dependency_path: sdks/mcp-bridge/package-lock.json
+          - id: ts-sdk
+            working_directory: sdks/ts
+            cache_dependency_path: sdks/ts/package-lock.json
     defaults:
       run:
         working-directory: ./${{ matrix.working_directory }}
@@ -243,7 +246,7 @@ jobs:
         cache-dependency-path: sdks/ts/package-lock.json
     - name: Install dependencies and run tests
       run: |
-        npm install
+        npm ci
         npm run build
         npm test
 
