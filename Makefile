@@ -10,7 +10,7 @@ COMPOSE_TEST := $(COMPOSE) --profile test
 PYTEST_UNIT := tests/ --ignore=tests/test_schema_integrity.py --ignore=tests/test_omnisim_scenarios.py -m "not integration"
 
 .PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-contradiction test-integration test-all
-.PHONY: lint-ci lint-python lint-frontend npm-install-frontend npm-install-mcp
+.PHONY: lint-ci lint-python lint-frontend npm-install-frontend npm-install-mcp npm-audit
 
 test: test-python test-ts test-go test-mcp
 
@@ -54,3 +54,11 @@ npm-install-frontend:
 
 npm-install-mcp:
 	$(COMPOSE_TEST) run --rm npm-install-mcp
+
+npm-audit: npm-audit-frontend npm-audit-mcp
+
+npm-audit-frontend:
+	$(COMPOSE_TEST) run --rm npm-audit-frontend
+
+npm-audit-mcp:
+	$(COMPOSE_TEST) run --rm npm-audit-mcp

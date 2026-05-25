@@ -130,3 +130,21 @@ services:
     volumes:
       - .:/workspace
     command: npm install
+
+  npm-audit-frontend:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /workspace/frontend
+    volumes:
+      - .:/workspace
+    command: >
+      sh -c "npm ci && npm audit --audit-level=high"
+
+  npm-audit-mcp:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /workspace/sdks/mcp-bridge
+    volumes:
+      - .:/workspace
+    command: >
+      sh -c "npm ci && npm audit --audit-level=high"
