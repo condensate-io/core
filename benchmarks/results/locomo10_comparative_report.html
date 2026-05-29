@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Condensate vs Target benchmark — LoCoMo Full Run</title>
+  <style>
+:root {
+  --bg: #f6f8fa;
+  --card: #ffffff;
+  --text: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --quote-bg: #f0f6ff;
+  --acc-high: #dafbe1;
+  --acc-mid: #fff8c5;
+  --acc-low: #ffebe9;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+}
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.75rem 2rem;
+  box-shadow: 0 1px 2px rgba(27, 31, 36, 0.06);
+}
+h1 { font-size: 1.75rem; margin: 0 0 0.75rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.35rem; }
+h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; color: var(--muted); }
+p { margin: 0.5rem 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+blockquote {
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border-left: 4px solid var(--accent);
+  background: var(--quote-bg);
+  border-radius: 0 8px 8px 0;
+}
+blockquote p { margin: 0; }
+ul { margin: 0.5rem 0 0.75rem 1.25rem; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  background: #eef1f4;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0 1.25rem;
+  font-size: 0.94rem;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+tbody tr:nth-child(even) { background: #fafbfc; }
+.csv-table td.acc-high { background: var(--acc-high); font-weight: 600; }
+.csv-table td.acc-mid { background: var(--acc-mid); }
+.csv-table td.acc-low { background: var(--acc-low); font-weight: 600; }
+.qa-table tr.hit td:first-child { border-left: 4px solid #1a7f37; }
+.qa-table tr.miss td:first-child { border-left: 4px solid #cf222e; }
+.qa-table .badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.12em 0.45em;
+  border-radius: 999px;
+}
+.badge-hit { background: var(--acc-high); color: #1a7f37; }
+.badge-miss { background: var(--acc-low); color: #cf222e; }
+pre.context {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.65rem;
+  background: #f6f8fa;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 12rem;
+  overflow: auto;
+}
+details summary { cursor: pointer; color: var(--accent); font-size: 0.88rem; }
+.meta {
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin-bottom: 1rem;
+}
+@media (max-width: 720px) {
+  .card { padding: 1.25rem; }
+  table { font-size: 0.85rem; display: block; overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Condensate vs Target benchmark — LoCoMo Full Run</h1>
+<p><strong>Generated:</strong> 2026-05-29 05:09 UTC</p>
+<p><strong>Dataset:</strong> <code>/app/benchmarks/data/locomo10.json</code></p>
+<p><strong>Conversations:</strong> 10</p>
+<p><strong>Scoring:</strong> retrieval + native_answer + optional_llm_grade</p>
+<p>*Published LoCoMo memory-system leaderboard (external reference)*</p>
+<h2>Executive summary</h2>
+<blockquote>
+<p>Condensate live stack: 71.8% retrieval, 921 tokens/query vs full context.</p>
+</blockquote>
+<h2>LoCoMo metrics (memory systems, not OpenAI-as-answerer)</h2>
+<table><thead><tr><th>Backend</th><th>Retrieval</th><th>Native answer</th><th>LLM graded</th><th>Avg tokens/query</th><th>vs Target benchmark tokens</th></tr></thead><tbody><tr><td><strong>full_context</strong></td><td>80.4%</td><td>93.5%</td><td>26.1%</td><td>20476</td><td>2.94× target benchmark mean</td></tr><tr><td><strong>observations</strong></td><td>69.2%</td><td>—</td><td>—</td><td>6307</td><td>0.91× target benchmark mean</td></tr><tr><td><strong>structured</strong></td><td>80.4%</td><td>—</td><td>—</td><td>22128</td><td>3.18× target benchmark mean</td></tr><tr><td><strong>condensate</strong></td><td>71.8%</td><td>62.5%</td><td>—</td><td>921</td><td>0.13× target benchmark mean</td></tr></tbody></table>
+<h3>Target benchmark (LoCoMo published reference)</h3>
+<ul>
+<li>Overall QA: <strong>92.5%</strong></li>
+<li>Mean tokens/query: <strong>6,956</strong></li>
+<li>Full-context baseline: <strong>~25,000</strong> tokens/query</li>
+</ul>
+<h3>Condensate native retrieval</h3>
+<ul>
+<li>Retrieval accuracy: <strong>71.8%</strong></li>
+<li>Native answer accuracy: <strong>62.5%</strong></li>
+<li>Avg tokens/query: <strong>921</strong></li>
+</ul>
+<h2>Category breakdown (retrieval accuracy)</h2>
+<table><thead><tr><th>Category</th><th>Target benchmark</th><th>full_context</th><th>observations</th><th>structured</th><th>condensate</th></tr></thead><tbody><tr><td>adversarial</td><td>—</td><td>40.1%</td><td>52.2%</td><td>40.1%</td><td>64.8%</td></tr><tr><td>multi-hop</td><td>93.3%</td><td>55.2%</td><td>43.8%</td><td>55.2%</td><td>49.0%</td></tr><tr><td>open-domain</td><td>76.0%</td><td>98.3%</td><td>90.5%</td><td>98.3%</td><td>81.2%</td></tr><tr><td>single-hop</td><td>92.3%</td><td>92.9%</td><td>83.3%</td><td>92.9%</td><td>55.7%</td></tr><tr><td>temporal</td><td>92.8%</td><td>86.0%</td><td>32.1%</td><td>86.0%</td><td>77.9%</td></tr></tbody></table>
+<h2>Condensate differentiation</h2>
+<p>Condensate targets <strong>assertion supersession</strong> (retire contradicted facts) vs add-only target benchmark memory products. Latest live run: <strong>71.8%</strong> overall retrieval at <strong>~921</strong> tokens/query — open-domain <strong>81.2%</strong> vs target benchmark <strong>76.0%</strong>; multi-hop and single-hop remain gaps. Adversarial retrieval <strong>64.8%</strong> (LOC-013). See <code>benchmarks/docs/COMPETITIVE_POSITIONING.md</code> for ContradictionBench + LoCoMo narrative.</p>
+<table><thead><tr><th>Capability</th><th>Target benchmark class</th><th>Condensate</th></tr></thead><tbody><tr><td>Memory updates</td><td>ADD-only (no overwrite)</td><td>Assertion supersession graph</td></tr><tr><td>ContradictionBench</td><td>Not published</td><td>See separate run (structured 100% vs full 0%)</td></tr><tr><td>Provenance / HITL</td><td>Limited</td><td>First-class assertion provenance</td></tr></tbody></table>
+<h2>Methodology notes</h2>
+<ul>
+<li><strong>Retrieval accuracy</strong>: gold answer present in retrieved context (no LLM).</li>
+<li><strong>Native answer accuracy</strong>: Condensate <code>/memory/retrieve</code> answer vs gold (local fuzzy match).</li>
+<li><strong>LLM graded</strong>: optional gpt-4o-mini equivalence on short strings only — never full transcripts.</li>
+<li>Target benchmark overall QA % uses a private answerer stack; compare directionally on retrieval/tokens.</li>
+</ul>
+    </div>
+  </div>
+</body>
+</html>

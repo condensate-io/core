@@ -178,10 +178,13 @@ async def create_episodic_item(
 async def bulk_ingest(data: EpisodicBulkCreate, background_tasks: BackgroundTasks):
     """
     Ingest many events at once (simulation rounds produce batches).
+    When wait=true, block until store + condensation completes (benchmark path).
     """
-    # Just queue the task
-    background_tasks.add_task(run_bulk_ingest, data)
+    if data.wait:
+        await run_bulk_ingest(data)
+        return {"status": "complete", "count": len(data.episodes)}
 
+    background_tasks.add_task(run_bulk_ingest, data)
     return {"status": "queued", "count": len(data.episodes)}
 
 

@@ -55,8 +55,13 @@ services:
     working_dir: /app
     volumes:
       - .:/app
+    env_file:
+      - .env
     environment:
       PYTHONPATH: /app
+      OPENAI_API_KEY: ${openai_api_key:-${OPENAI_API_KEY:-}}
+      CONDENSATE_URL: http://condensate-core:8000
+      CONDENSATE_API_KEY: ${CONDENSATE_API_KEY:-}
     networks:
       - condensate_net
     entrypoint: ["python", "benchmarks/runners/run_locomo.py"]

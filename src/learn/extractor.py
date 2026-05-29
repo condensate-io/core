@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import List, AsyncGenerator
+from typing import List, AsyncGenerator, Optional, Any
 from openai import AsyncOpenAI
 from tenacity import retry, wait_exponential, stop_after_attempt
 
@@ -93,12 +93,12 @@ class MemoryExtractor:
                     repaired = self._cleanup_json(cleaned_content)
                     data = json.loads(repaired)
 
-                # Transform raw dict to Pydantic models with correct evidence
+                # Transform raw dict to Pydantic models; skip malformed items instead of dropping the bundle
                 bundle = ExtractionBundle(
-                    entities=[ExtractedEntity(**e) for e in data.get("entities", [])],
-                    assertions=[self._enrich_assertion(a, item.id) for a in data.get("assertions", [])],
-                    events=[self._enrich_event(e, item.id) for e in data.get("events", [])],
-                    policies=[self._enrich_policy(p, item.id) for p in data.get("policies", [])]
+                    entities=self._parse_entities(data.get("entities", []), item.id),
+                    assertions=self._parse_assertions(data.get("assertions", []), item.id),
+                    events=self._parse_events(data.get("events", []), item.id),
+                    policies=self._parse_policies(data.get("policies", []), item.id),
                 )
                 results.append(bundle)
             except Exception as e:
@@ -126,18 +126,95 @@ class MemoryExtractor:
             
         return fixed
 
-    def _enrich_assertion(self, raw: dict, item_id: str):
-        # Add source evidence if missing (LLM might not populate it strictly)
-        if "evidence" not in raw or not raw["evidence"]:
-            raw["evidence"] = [{"episodic_id": str(item_id), "quote": "Derived from item"}]
-        return ExtractedAssertion(**raw)
+    def _parse_entities(self, raw_entities: List[Any], item_id: str) -> List[ExtractedEntity]:
+        parsed: List[ExtractedEntity] = []
+        for raw in raw_entities:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                parsed.append(ExtractedEntity(**raw))
+            except Exception as exc:
+                logger.warning("Skipping malformed entity for item %s: %s", item_id, exc)
+        return parsed
 
-    def _enrich_event(self, raw: dict, item_id: str):
-        if "evidence" not in raw or not raw["evidence"]:
-            raw["evidence"] = [{"episodic_id": str(item_id), "quote": "Derived from item"}]
-        return ExtractedEvent(**raw)
+    def _parse_assertions(self, raw_assertions: List[Any], item_id: str) -> List[ExtractedAssertion]:
+        parsed: List[ExtractedAssertion] = []
+        for raw in raw_assertions:
+            assertion = self._enrich_assertion(raw, item_id)
+            if assertion is not None:
+                parsed.append(assertion)
+        return parsed
 
-    def _enrich_policy(self, raw: dict, item_id: str):
-        if "evidence" not in raw or not raw["evidence"]:
-            raw["evidence"] = [{"episodic_id": str(item_id), "quote": "Derived from item"}]
-        return ExtractedPolicy(**raw)
+    def _parse_events(self, raw_events: List[Any], item_id: str) -> List[ExtractedEvent]:
+        parsed: List[ExtractedEvent] = []
+        for raw in raw_events:
+            event = self._enrich_event(raw, item_id)
+            if event is not None:
+                parsed.append(event)
+        return parsed
+
+    def _parse_policies(self, raw_policies: List[Any], item_id: str) -> List[ExtractedPolicy]:
+        parsed: List[ExtractedPolicy] = []
+        for raw in raw_policies:
+            policy = self._enrich_policy(raw, item_id)
+            if policy is not None:
+                parsed.append(policy)
+        return parsed
+
+    def _normalize_assertion_raw(self, data: dict) -> dict:
+        if data.get("object") is None:
+            for alias in ("obj", "object_ref", "target", "object_value"):
+                if data.get(alias) is not None:
+                    data["object"] = data[alias]
+                    break
+        if data.get("object") is None and isinstance(data.get("value"), str):
+            data["object"] = {"type": "literal", "value": data["value"]}
+        if not data.get("predicate"):
+            for alias in ("relation", "relationship", "verb"):
+                if data.get(alias):
+                    data["predicate"] = str(data[alias])
+                    break
+        return data
+
+    def _enrich_assertion(self, raw: Any, item_id: str) -> Optional[ExtractedAssertion]:
+        if not isinstance(raw, dict):
+            return None
+        data = self._normalize_assertion_raw(dict(raw))
+        if data.get("object") is None or not data.get("predicate"):
+            logger.warning(
+                "Skipping incomplete assertion for item %s (missing object or predicate): %s",
+                item_id,
+                {k: data[k] for k in data if k in ("subject", "predicate", "object", "polarity")},
+            )
+            return None
+        if "evidence" not in data or not data["evidence"]:
+            data["evidence"] = [{"episodic_id": str(item_id), "quote": "Derived from item"}]
+        try:
+            return ExtractedAssertion(**data)
+        except Exception as exc:
+            logger.warning("Skipping malformed assertion for item %s: %s", item_id, exc)
+            return None
+
+    def _enrich_event(self, raw: Any, item_id: str) -> Optional[ExtractedEvent]:
+        if not isinstance(raw, dict):
+            return None
+        data = dict(raw)
+        if "evidence" not in data or not data["evidence"]:
+            data["evidence"] = [{"episodic_id": str(item_id), "quote": "Derived from item"}]
+        try:
+            return ExtractedEvent(**data)
+        except Exception as exc:
+            logger.warning("Skipping malformed event for item %s: %s", item_id, exc)
+            return None
+
+    def _enrich_policy(self, raw: Any, item_id: str) -> Optional[ExtractedPolicy]:
+        if not isinstance(raw, dict):
+            return None
+        data = dict(raw)
+        if "evidence" not in data or not data["evidence"]:
+            data["evidence"] = [{"episodic_id": str(item_id), "quote": "Derived from item"}]
+        try:
+            return ExtractedPolicy(**data)
+        except Exception as exc:
+            logger.warning("Skipping malformed policy for item %s: %s", item_id, exc)
+            return None

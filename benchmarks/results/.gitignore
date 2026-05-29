@@ -1,0 +1,4 @@
+# Publish only the comparative report HTML; all other run artifacts stay local.
+*
+!.gitignore
+!locomo10_comparative_report.html
