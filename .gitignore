@@ -45,6 +45,10 @@ docs/
 scratch/
 custom_scripts/
 scripts/
+# Benchmarks — only the published comparative report is committed (see benchmarks/results/.gitignore)
+benchmarks/**
+!benchmarks/results/
+!benchmarks/results/locomo10_comparative_report.html
 CUDA_DRIVER_*
 yc_session_export_nc.md
 

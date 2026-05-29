@@ -109,21 +109,35 @@ class IngressAgent:
     async def process_and_condense_batch(self, batch_data: List[EpisodicItemCreate]) -> List[EpisodicItem]:
         """
         Process multiple items at once to optimize throughput.
+        Large batches are split to avoid OOM during NER + LLM condensation.
         """
-        items = []
-        for data in batch_data:
-            items.append(self.process_memory(data))
+        import os
 
-        if not items:
-            return []
+        chunk_size = max(1, int(os.getenv("CONDENSE_BATCH_SIZE", "40")))
+        all_items: List[EpisodicItem] = []
 
-        # Step 2: Run condensation pipeline on the entire batch
-        try:
-            from src.engine.condenser import Condenser
-            condenser = Condenser(self.db)
-            # Use project_id from first item (assuming all in batch share one project)
-            await condenser.distill(items[0].project_id, items)
-        except Exception as e:
-            logger.error(f"Batch condensation failed: {e}")
-            
-        return items
+        for offset in range(0, len(batch_data), chunk_size):
+            chunk = batch_data[offset : offset + chunk_size]
+            items: List[EpisodicItem] = []
+            for data in chunk:
+                items.append(self.process_memory(data))
+
+            if not items:
+                continue
+
+            try:
+                from src.engine.condenser import Condenser
+
+                condenser = Condenser(self.db)
+                await condenser.distill(items[0].project_id, items)
+            except Exception as e:
+                logger.error(
+                    "Batch condensation failed for chunk %s-%s: %s",
+                    offset,
+                    offset + len(chunk),
+                    e,
+                )
+
+            all_items.extend(items)
+
+        return all_items

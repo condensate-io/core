@@ -106,6 +106,20 @@ class ExtractedAssertion(BaseModel):
     @classmethod
     def robust_parsing(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            data = dict(data)
+            # LLMs often use alternate keys for the object slot of a triple
+            if data.get("object") is None:
+                for alias in ("obj", "object_ref", "target", "object_value"):
+                    if data.get(alias) is not None:
+                        data["object"] = data[alias]
+                        break
+            if data.get("object") is None and isinstance(data.get("value"), str):
+                data["object"] = {"type": "literal", "value": data["value"]}
+            if not data.get("predicate"):
+                for alias in ("relation", "relationship", "verb"):
+                    if data.get(alias):
+                        data["predicate"] = str(data[alias])
+                        break
             # Default confidence if LLM omits it
             if "confidence" not in data or data["confidence"] is None:
                 data["confidence"] = 0.8
@@ -113,7 +127,7 @@ class ExtractedAssertion(BaseModel):
             if "polarity" in data and data["polarity"] is not None:
                 try:
                     data["polarity"] = int(data["polarity"])
-                except:
+                except Exception:
                     data["polarity"] = 1
             else:
                 data["polarity"] = 1

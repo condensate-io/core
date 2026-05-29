@@ -133,6 +133,7 @@ class OntologyNodeResponse(BaseModel):
 class EpisodicBulkCreate(BaseModel):
     project_id: uuid.UUID
     episodes: List[EpisodicItemCreate]
+    wait: bool = False
 
 class GraphCreate(BaseModel):
     project_id: Optional[uuid.UUID] = None

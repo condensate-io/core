@@ -22,6 +22,7 @@ class RetrieveRequest(BaseModel):
 
 class RetrieveResponse(BaseModel):
     answer: str
+    context: str = ""
     sources: List[str]
     strategy: str
 

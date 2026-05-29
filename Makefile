@@ -9,7 +9,7 @@ COMPOSE_TEST := $(COMPOSE) --profile test
 
 PYTEST_UNIT := tests/ --ignore=tests/test_schema_integrity.py --ignore=tests/test_omnisim_scenarios.py -m "not integration"
 
-.PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-contradiction test-integration test-all
+.PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-locomo-full test-contradiction test-integration test-all
 .PHONY: lint-ci lint-python lint-frontend npm-install-frontend npm-install-mcp npm-audit
 
 test: test-python test-ts test-go test-mcp
@@ -28,7 +28,19 @@ test-mcp:
 
 test-benchmarks:
 	$(COMPOSE_TEST) run --rm --no-deps test-benchmarks \
-		--backend full_context --output /tmp/bench-demo.json
+		--backend all --skip-condensate --output /tmp/bench-locomo.json
+
+test-locomo-full:
+	$(COMPOSE) -f benchmarks/docker-compose.bench.yml up -d condensate-db condensate-vector condensate-ollama condensate-core
+	$(COMPOSE_TEST) -f benchmarks/docker-compose.bench.yml run --rm test-benchmarks \
+		--dataset /app/benchmarks/data/locomo10.json \
+		--backend condensate \
+		--resume \
+		--output /app/benchmarks/results/locomo10_full_report.json
+	$(COMPOSE_TEST) run --rm --no-deps --entrypoint python test-benchmarks \
+		benchmarks/runners/generate_comparative_report.py \
+		--input /app/benchmarks/results/locomo10_full_report.json \
+		--output /app/benchmarks/results/locomo10_comparative_report.md
 
 test-contradiction:
 	$(COMPOSE_TEST) run --rm --no-deps test-contradiction \
