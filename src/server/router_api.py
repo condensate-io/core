@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 class RetrieveRequest(BaseModel):
     project_id: Optional[Any] = None  # Optional now since it's forced by API key
     query: str
+    session_id: Optional[str] = None
 
 
 class RetrieveResponse(BaseModel):
@@ -38,7 +39,9 @@ async def retrieve_memory(
         # Enforce scoping: use the project_id associated with the API key
         project_id = str(api_key.project_id)
         mr = MemoryRouter(db, qdrant)
-        result = await mr.route_and_retrieve(project_id, request.query)
+        result = await mr.route_and_retrieve(
+            project_id, request.query, session_id=request.session_id
+        )
         return RetrieveResponse(**result)
     except Exception as e:
         logger.error(f"Retrieval failed: {e}")

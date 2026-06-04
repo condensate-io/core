@@ -1,0 +1,1005 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "cb-001",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 1 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 1 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 1?",
+      "expected_active_only": "Server 1 is up",
+      "forbidden_in_context": [
+        "Server 1 is down"
+      ]
+    },
+    {
+      "id": "cb-002",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 2 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 2 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 2?",
+      "expected_active_only": "Database 2 is online",
+      "forbidden_in_context": [
+        "Database 2 is offline"
+      ]
+    },
+    {
+      "id": "cb-003",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 3 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 3 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 3?",
+      "expected_active_only": "Feature flag 3 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 3 is disabled"
+      ]
+    },
+    {
+      "id": "cb-004",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 4 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 4 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 4?",
+      "expected_active_only": "API endpoint 4 is supported",
+      "forbidden_in_context": [
+        "API endpoint 4 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-005",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 5 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 5 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 5?",
+      "expected_active_only": "Cache layer 5 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 5 is stale"
+      ]
+    },
+    {
+      "id": "cb-006",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 6 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 6 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 6?",
+      "expected_active_only": "Server 6 is up",
+      "forbidden_in_context": [
+        "Server 6 is down"
+      ]
+    },
+    {
+      "id": "cb-007",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 7 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 7 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 7?",
+      "expected_active_only": "Database 7 is online",
+      "forbidden_in_context": [
+        "Database 7 is offline"
+      ]
+    },
+    {
+      "id": "cb-008",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 8 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 8 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 8?",
+      "expected_active_only": "Feature flag 8 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 8 is disabled"
+      ]
+    },
+    {
+      "id": "cb-009",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 9 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 9 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 9?",
+      "expected_active_only": "API endpoint 9 is supported",
+      "forbidden_in_context": [
+        "API endpoint 9 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-010",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 10 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 10 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 10?",
+      "expected_active_only": "Cache layer 10 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 10 is stale"
+      ]
+    },
+    {
+      "id": "cb-011",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 11 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 11 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 11?",
+      "expected_active_only": "Server 11 is up",
+      "forbidden_in_context": [
+        "Server 11 is down"
+      ]
+    },
+    {
+      "id": "cb-012",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 12 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 12 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 12?",
+      "expected_active_only": "Database 12 is online",
+      "forbidden_in_context": [
+        "Database 12 is offline"
+      ]
+    },
+    {
+      "id": "cb-013",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 13 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 13 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 13?",
+      "expected_active_only": "Feature flag 13 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 13 is disabled"
+      ]
+    },
+    {
+      "id": "cb-014",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 14 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 14 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 14?",
+      "expected_active_only": "API endpoint 14 is supported",
+      "forbidden_in_context": [
+        "API endpoint 14 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-015",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 15 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 15 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 15?",
+      "expected_active_only": "Cache layer 15 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 15 is stale"
+      ]
+    },
+    {
+      "id": "cb-016",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 16 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 16 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 16?",
+      "expected_active_only": "Server 16 is up",
+      "forbidden_in_context": [
+        "Server 16 is down"
+      ]
+    },
+    {
+      "id": "cb-017",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 17 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 17 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 17?",
+      "expected_active_only": "Database 17 is online",
+      "forbidden_in_context": [
+        "Database 17 is offline"
+      ]
+    },
+    {
+      "id": "cb-018",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 18 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 18 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 18?",
+      "expected_active_only": "Feature flag 18 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 18 is disabled"
+      ]
+    },
+    {
+      "id": "cb-019",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 19 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 19 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 19?",
+      "expected_active_only": "API endpoint 19 is supported",
+      "forbidden_in_context": [
+        "API endpoint 19 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-020",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 20 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 20 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 20?",
+      "expected_active_only": "Cache layer 20 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 20 is stale"
+      ]
+    },
+    {
+      "id": "cb-021",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 21 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 21 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 21?",
+      "expected_active_only": "Server 21 is up",
+      "forbidden_in_context": [
+        "Server 21 is down"
+      ]
+    },
+    {
+      "id": "cb-022",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 22 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 22 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 22?",
+      "expected_active_only": "Database 22 is online",
+      "forbidden_in_context": [
+        "Database 22 is offline"
+      ]
+    },
+    {
+      "id": "cb-023",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 23 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 23 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 23?",
+      "expected_active_only": "Feature flag 23 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 23 is disabled"
+      ]
+    },
+    {
+      "id": "cb-024",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 24 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 24 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 24?",
+      "expected_active_only": "API endpoint 24 is supported",
+      "forbidden_in_context": [
+        "API endpoint 24 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-025",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 25 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 25 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 25?",
+      "expected_active_only": "Cache layer 25 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 25 is stale"
+      ]
+    },
+    {
+      "id": "cb-026",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 26 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 26 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 26?",
+      "expected_active_only": "Server 26 is up",
+      "forbidden_in_context": [
+        "Server 26 is down"
+      ]
+    },
+    {
+      "id": "cb-027",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 27 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 27 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 27?",
+      "expected_active_only": "Database 27 is online",
+      "forbidden_in_context": [
+        "Database 27 is offline"
+      ]
+    },
+    {
+      "id": "cb-028",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 28 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 28 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 28?",
+      "expected_active_only": "Feature flag 28 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 28 is disabled"
+      ]
+    },
+    {
+      "id": "cb-029",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 29 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 29 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 29?",
+      "expected_active_only": "API endpoint 29 is supported",
+      "forbidden_in_context": [
+        "API endpoint 29 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-030",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 30 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 30 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 30?",
+      "expected_active_only": "Cache layer 30 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 30 is stale"
+      ]
+    },
+    {
+      "id": "cb-031",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 31 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 31 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 31?",
+      "expected_active_only": "Server 31 is up",
+      "forbidden_in_context": [
+        "Server 31 is down"
+      ]
+    },
+    {
+      "id": "cb-032",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 32 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 32 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 32?",
+      "expected_active_only": "Database 32 is online",
+      "forbidden_in_context": [
+        "Database 32 is offline"
+      ]
+    },
+    {
+      "id": "cb-033",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 33 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 33 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 33?",
+      "expected_active_only": "Feature flag 33 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 33 is disabled"
+      ]
+    },
+    {
+      "id": "cb-034",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 34 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 34 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 34?",
+      "expected_active_only": "API endpoint 34 is supported",
+      "forbidden_in_context": [
+        "API endpoint 34 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-035",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 35 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 35 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 35?",
+      "expected_active_only": "Cache layer 35 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 35 is stale"
+      ]
+    },
+    {
+      "id": "cb-036",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 36 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 36 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 36?",
+      "expected_active_only": "Server 36 is up",
+      "forbidden_in_context": [
+        "Server 36 is down"
+      ]
+    },
+    {
+      "id": "cb-037",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 37 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 37 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 37?",
+      "expected_active_only": "Database 37 is online",
+      "forbidden_in_context": [
+        "Database 37 is offline"
+      ]
+    },
+    {
+      "id": "cb-038",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 38 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 38 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 38?",
+      "expected_active_only": "Feature flag 38 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 38 is disabled"
+      ]
+    },
+    {
+      "id": "cb-039",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 39 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 39 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 39?",
+      "expected_active_only": "API endpoint 39 is supported",
+      "forbidden_in_context": [
+        "API endpoint 39 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-040",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 40 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 40 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 40?",
+      "expected_active_only": "Cache layer 40 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 40 is stale"
+      ]
+    },
+    {
+      "id": "cb-041",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 41 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 41 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 41?",
+      "expected_active_only": "Server 41 is up",
+      "forbidden_in_context": [
+        "Server 41 is down"
+      ]
+    },
+    {
+      "id": "cb-042",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 42 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 42 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 42?",
+      "expected_active_only": "Database 42 is online",
+      "forbidden_in_context": [
+        "Database 42 is offline"
+      ]
+    },
+    {
+      "id": "cb-043",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 43 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 43 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 43?",
+      "expected_active_only": "Feature flag 43 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 43 is disabled"
+      ]
+    },
+    {
+      "id": "cb-044",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 44 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 44 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 44?",
+      "expected_active_only": "API endpoint 44 is supported",
+      "forbidden_in_context": [
+        "API endpoint 44 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-045",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 45 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 45 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 45?",
+      "expected_active_only": "Cache layer 45 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 45 is stale"
+      ]
+    },
+    {
+      "id": "cb-046",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Server 46 is down",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Server 46 is up",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Server 46?",
+      "expected_active_only": "Server 46 is up",
+      "forbidden_in_context": [
+        "Server 46 is down"
+      ]
+    },
+    {
+      "id": "cb-047",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Database 47 is offline",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Database 47 is online",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Database 47?",
+      "expected_active_only": "Database 47 is online",
+      "forbidden_in_context": [
+        "Database 47 is offline"
+      ]
+    },
+    {
+      "id": "cb-048",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Feature flag 48 is disabled",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Feature flag 48 is enabled",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Feature flag 48?",
+      "expected_active_only": "Feature flag 48 is enabled",
+      "forbidden_in_context": [
+        "Feature flag 48 is disabled"
+      ]
+    },
+    {
+      "id": "cb-049",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API endpoint 49 is deprecated",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "API endpoint 49 is supported",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of API endpoint 49?",
+      "expected_active_only": "API endpoint 49 is supported",
+      "forbidden_in_context": [
+        "API endpoint 49 is deprecated"
+      ]
+    },
+    {
+      "id": "cb-050",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cache layer 50 is stale",
+          "status": "superseded"
+        },
+        {
+          "role": "user",
+          "content": "Cache layer 50 is fresh",
+          "status": "active"
+        }
+      ],
+      "query": "What is the status of Cache layer 50?",
+      "expected_active_only": "Cache layer 50 is fresh",
+      "forbidden_in_context": [
+        "Cache layer 50 is stale"
+      ]
+    }
+  ]
+}

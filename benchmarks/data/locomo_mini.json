@@ -1,0 +1,108 @@
+[
+  {
+    "sample_id": "condensate-mini-001",
+    "conversation": {
+      "speaker_a": "Alex",
+      "speaker_b": "Jordan",
+      "session_1_date_time": "2024-03-01 09:00",
+      "session_1": [
+        {
+          "speaker": "Alex",
+          "dia_id": "S1:1",
+          "text": "Hi Jordan! I just moved to Seattle and started at Contoso as a platform engineer."
+        },
+        {
+          "speaker": "Jordan",
+          "dia_id": "S1:2",
+          "text": "Welcome! Seattle is great. What stack are you using at Contoso?"
+        },
+        {
+          "speaker": "Alex",
+          "dia_id": "S1:3",
+          "text": "We standardize on PostgreSQL for new services. I also run a homelab with MySQL for legacy apps."
+        },
+        {
+          "speaker": "Jordan",
+          "dia_id": "S1:4",
+          "text": "Nice. I'm more of a MongoDB person for side projects."
+        }
+      ],
+      "session_2_date_time": "2024-06-15 14:30",
+      "session_2": [
+        {
+          "speaker": "Alex",
+          "dia_id": "S2:1",
+          "text": "Update: Contoso migrated the payments service from MySQL to PostgreSQL last month."
+        },
+        {
+          "speaker": "Jordan",
+          "dia_id": "S2:2",
+          "text": "Did you keep anything on MySQL?"
+        },
+        {
+          "speaker": "Alex",
+          "dia_id": "S2:3",
+          "text": "Only my homelab legacy apps still use MySQL. Work projects are PostgreSQL-only now."
+        },
+        {
+          "speaker": "Jordan",
+          "dia_id": "S2:4",
+          "text": "Got it. Still planning the Japan trip for October?"
+        },
+        {
+          "speaker": "Alex",
+          "dia_id": "S2:5",
+          "text": "Yes — Tokyo and Kyoto, October 12 through October 22."
+        }
+      ]
+    },
+    "observation": {
+      "session_1_observation": [
+        "Alex lives in Seattle and works at Contoso as a platform engineer.",
+        "Alex prefers PostgreSQL for new Contoso services and uses MySQL only in a homelab.",
+        "Jordan prefers MongoDB for side projects."
+      ],
+      "session_2_observation": [
+        "Contoso payments service migrated from MySQL to PostgreSQL.",
+        "Alex uses MySQL only for homelab legacy apps; work projects are PostgreSQL-only.",
+        "Alex plans a Japan trip to Tokyo and Kyoto from October 12 to October 22."
+      ]
+    },
+    "session_summary": {
+      "session_1_summary": "Alex introduced themselves as a new Seattle-based Contoso engineer preferring PostgreSQL at work.",
+      "session_2_summary": "Alex updated Jordan on a PostgreSQL migration at work and confirmed an October Japan trip."
+    },
+    "qa": [
+      {
+        "question": "Where does Alex work?",
+        "answer": "Contoso",
+        "category": "single-hop",
+        "evidence": ["S1:1"]
+      },
+      {
+        "question": "What database does Alex prefer for new Contoso services?",
+        "answer": "PostgreSQL",
+        "category": "single-hop",
+        "evidence": ["S1:3"]
+      },
+      {
+        "question": "When is Alex traveling to Japan?",
+        "answer": "October 12 through October 22",
+        "category": "temporal",
+        "evidence": ["S2:5"]
+      },
+      {
+        "question": "Which cities is Alex visiting in Japan?",
+        "answer": "Tokyo and Kyoto",
+        "category": "multi-hop",
+        "evidence": ["S2:5"]
+      },
+      {
+        "question": "Does Alex still use MySQL at Contoso for the payments service?",
+        "answer": "No",
+        "category": "temporal",
+        "evidence": ["S2:1", "S2:3"]
+      }
+    ]
+  }
+]

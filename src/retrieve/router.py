@@ -430,7 +430,7 @@ class MemoryRouter:
         self.db = db
         self.qdrant = qdrant
 
-    async def route_and_retrieve(self, project_id: Any, query: str, skip_llm: bool = False, llm_config: Optional[Dict[str, str]] = None, current_step: Optional[int] = None) -> Dict[str, Any]:
+    async def route_and_retrieve(self, project_id: Any, query: str, skip_llm: bool = False, llm_config: Optional[Dict[str, str]] = None, current_step: Optional[int] = None, session_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Main entry point: Classification -> Retrieval -> Synthesis
         """
