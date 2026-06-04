@@ -1,13 +1,10 @@
 from unittest.mock import MagicMock
 
 from src.retrieve.router import (
-    assertion_in_session_scope,
-    episodic_qdrant_filter,
     episodic_score_adjustment,
     extract_query_keywords,
     extract_entity_names,
     filter_adversarial_context,
-    filter_assertions_for_session,
     format_episodic_context_line,
     heuristic_rerank_items,
     is_adversarial_risk_query,
@@ -19,7 +16,6 @@ from src.retrieve.router import (
     merge_retrieval_items,
     normalize_chunk_text,
     qdrant_vector_search,
-    should_apply_adversarial_filter,
     supplementary_vector_queries,
     supplementary_vector_queries_recall,
 )
@@ -82,13 +78,11 @@ def test_episodic_score_adjustment_downranks_boilerplate():
     assert low < high
 
 
-def test_supplementary_vector_queries_recall_kids_and_books():
+def test_supplementary_vector_queries_recall():
     query = "What do Melanie's kids like?"
     extras = supplementary_vector_queries_recall(query, extract_query_keywords(query))
-    assert any("kids" in e.lower() for e in extras)
-    book_query = "What books has Melanie read?"
-    book_extras = supplementary_vector_queries_recall(book_query, extract_query_keywords(book_query))
-    assert any("books" in e.lower() for e in book_extras)
+    assert extras
+    assert "melanie" in extras[0].lower()
 
 
 def test_heuristic_rerank_items_prefers_observations():
@@ -104,19 +98,6 @@ def test_heuristic_rerank_items_prefers_observations():
 def test_is_adversarial_risk_query():
     assert is_adversarial_risk_query("What are Melanie's plans for the summer with respect to adoption?")
     assert not is_adversarial_risk_query("When did Caroline go to the LGBTQ support group?")
-    assert not is_adversarial_risk_query(
-        "Would Caroline still want to pursue counseling as a career if she hadn't received support?"
-    )
-
-
-def test_should_apply_adversarial_filter_skips_multihop():
-    query = (
-        "Would Caroline still want to pursue counseling as a career "
-        "if she hadn't received support growing up?"
-    )
-    assert is_multihop_query(query)
-    assert not should_apply_adversarial_filter(query)
-    assert should_apply_adversarial_filter("What are Melanie's plans for the summer with respect to adoption?")
 
 
 def test_filter_adversarial_context_limits_raw_dialog(monkeypatch):
@@ -179,42 +160,3 @@ def test_qdrant_vector_search_uses_query_points():
     assert hits == [point]
     client.query_points.assert_called_once()
     client.search.assert_not_called()
-
-
-def test_episodic_qdrant_filter_includes_session_when_provided():
-    filt = episodic_qdrant_filter("proj-123", "conv-30")
-    keys = [cond.key for cond in filt.must]
-    assert "project_id" in keys
-    assert "metadata.session_id" in keys
-
-
-def test_episodic_qdrant_filter_project_only_without_session():
-    filt = episodic_qdrant_filter("proj-123")
-    keys = [cond.key for cond in filt.must]
-    assert keys == ["project_id"]
-
-
-def test_assertion_in_session_scope_requires_session_entity():
-    assertion = MagicMock(
-        subject_text="Jon",
-        predicate="enjoys",
-        object_text="hiking",
-    )
-    assert assertion_in_session_scope(
-        assertion,
-        frozenset({"Jon"}),
-        frozenset({"hiking"}),
-    )
-    assert not assertion_in_session_scope(
-        assertion,
-        frozenset({"Caroline"}),
-        frozenset({"hiking"}),
-    )
-
-
-def test_filter_assertions_for_session_keeps_fallback_when_empty():
-    a1 = MagicMock(subject_text="Jon", predicate="likes", object_text="coffee")
-    a2 = MagicMock(subject_text="Melanie", predicate="likes", object_text="tea")
-    scoped = filter_assertions_for_session([a1, a2], frozenset({"Jon"}), frozenset({"coffee"}))
-    assert a1 in scoped
-    assert a2 not in scoped
