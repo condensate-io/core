@@ -45,10 +45,12 @@ docs/
 scratch/
 custom_scripts/
 scripts/
-# Benchmarks — only the published comparative report is committed (see benchmarks/results/.gitignore)
-benchmarks/**
-!benchmarks/results/
+# Benchmarks — harness tracked; run artifacts gitignored (see benchmarks/results/.gitignore)
+benchmarks/results/*
+!benchmarks/results/.gitignore
 !benchmarks/results/locomo10_comparative_report.html
+# Full LoCoMo dataset: fetch locally (CC BY-NC 4.0), mini fixture is committed
+benchmarks/data/locomo10.json
 CUDA_DRIVER_*
 yc_session_export_nc.md
 
@@ -92,3 +94,5 @@ docs/llm.md
 docs/mcp.md
 docs/mcp.md
 ROADMAP*
+benchmarks/docs/*
+benchmarks/runners/generate_*

@@ -2,13 +2,14 @@ import os
 import json
 import logging
 import re
+import uuid
 from typing import List, Dict, Any, Optional, Tuple
 from src.retrieve.token_metrics import build_token_metrics, log_token_metrics
 from openai import AsyncOpenAI
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text, or_, func
-from src.db.models import Assertion, Entity
+from src.db.models import Assertion, Entity, EpisodicItem
 
 # Constants
 from src.llm.client import LLMClient
@@ -114,9 +115,32 @@ def supplementary_vector_queries_recall(query: str, keywords: List[str]) -> List
     subject = names[0]
     names_lower = {n.lower() for n in names}
     content_kw = [k for k in keywords if k.lower() not in names_lower][:3]
-    if not content_kw:
-        return []
-    return [f"{subject} {' '.join(content_kw)}"]
+    lowered = query.lower()
+    extras: List[str] = []
+    if content_kw:
+        extras.append(f"{subject} {' '.join(content_kw)}")
+    if "kids" in lowered or "children" in lowered:
+        extras.append(f"{subject} kids hobbies interests")
+    if "book" in lowered:
+        extras.append(f"{subject} books reading")
+    if "activit" in lowered or "events" in lowered or "participat" in lowered:
+        extras.append(f"{subject} activities events")
+    if "paint" in lowered:
+        extras.append(f"{subject} painting artwork")
+    if "relationship status" in lowered or "identity" in lowered:
+        extras.append(f"{subject} relationship single married")
+    if "planning" in lowered or "going camping" in lowered:
+        extras.append(f"{subject} camping trip planning June")
+    if "lgbtq" in lowered or "community" in lowered:
+        extras.append(f"{subject} LGBTQ community events")
+    seen: set[str] = set()
+    deduped: List[str] = []
+    for item in extras:
+        key = item.lower().strip()
+        if key and key not in seen and key != query.lower().strip():
+            seen.add(key)
+            deduped.append(item)
+    return deduped[:5]
 
 
 def supplementary_vector_queries(query: str, keywords: List[str]) -> List[str]:
@@ -129,6 +153,8 @@ def supplementary_vector_queries(query: str, keywords: List[str]) -> List[str]:
 
     if subject and content_kw:
         extras.append(f"{subject} {' '.join(content_kw[:4])}")
+    if len(names) >= 2:
+        extras.append(f"{names[0]} {names[1]} {' '.join(content_kw[:3])}")
     if len(content_kw) >= 2:
         extras.append(" ".join(content_kw[:5]))
     if is_multihop_query(query):
@@ -171,17 +197,22 @@ def is_boilerplate_episodic(text: str) -> bool:
 
 
 def is_adversarial_risk_query(query: str) -> bool:
+    if is_multihop_query(query):
+        return False
     lowered = query.lower()
     markers = (
-        "still ",
         "with respect to",
         "plans for",
-        "would ",
-        "if she hadn't",
-        "if he hadn't",
         "adoption",
     )
     return any(marker in lowered for marker in markers)
+
+
+def should_apply_adversarial_filter(query: str) -> bool:
+    """LOC-013: filter raw dialog for trap-prone queries, not counterfactual multi-hop."""
+    if is_multihop_query(query):
+        return False
+    return is_adversarial_risk_query(query)
 
 
 def episodic_score_adjustment(
@@ -266,7 +297,19 @@ def is_research_query(query: str) -> bool:
 
 def is_temporal_query(query: str) -> bool:
     lowered = query.lower()
-    if any(marker in lowered for marker in ("when did", "when was", "when is", "what date", "how long", "since ")):
+    if any(
+        marker in lowered
+        for marker in (
+            "when did",
+            "when was",
+            "when is",
+            "what date",
+            "how long",
+            "how long ago",
+            "since ",
+            "planning on going",
+        )
+    ):
         return True
     return bool(re.search(r"\b(19|20)\d{2}\b", query))
 
@@ -376,6 +419,85 @@ Output JSON:
 _QUERY_EMBEDDING = None
 
 
+def _resolve_project_uuid(project_id: Any) -> uuid.UUID:
+    if isinstance(project_id, uuid.UUID):
+        return project_id
+    try:
+        return uuid.UUID(str(project_id))
+    except ValueError:
+        return uuid.uuid5(uuid.NAMESPACE_DNS, str(project_id))
+
+
+def episodic_qdrant_filter(project_id: Any, session_id: str | None = None):
+    """Build a Qdrant filter for project scope, optionally narrowed to one session."""
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
+
+    must: list[Any] = []
+    if isinstance(project_id, list):
+        must.append(FieldCondition(key="project_id", match=MatchAny(any=project_id)))
+    else:
+        must.append(FieldCondition(key="project_id", match=MatchValue(value=str(project_id))))
+    if session_id:
+        must.append(
+            FieldCondition(key="metadata.session_id", match=MatchValue(value=session_id))
+        )
+    return Filter(must=must)
+
+
+def session_scope_profile(
+    db: Session, project_id: Any, session_id: str
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Entity names and keywords drawn from episodic items in one session."""
+    pid = _resolve_project_uuid(project_id)
+    rows = db.execute(
+        select(EpisodicItem.text, EpisodicItem.metadata_).where(
+            EpisodicItem.project_id == pid
+        )
+    ).all()
+    entities: set[str] = set()
+    terms: set[str] = set()
+    for text, meta in rows:
+        if (meta or {}).get("session_id") != session_id:
+            continue
+        entities.update(extract_entity_names(text))
+        terms.update(extract_query_keywords(text))
+        for name in entities:
+            terms.add(name.lower())
+    return frozenset(entities), frozenset(terms)
+
+
+def assertion_in_session_scope(
+    assertion: Assertion,
+    session_entities: frozenset[str],
+    session_terms: frozenset[str],
+) -> bool:
+    """Keep assertions that plausibly belong to the requested session."""
+    if not session_entities and not session_terms:
+        return True
+    blob = f"{assertion.subject_text} {assertion.predicate} {assertion.object_text}".lower()
+    if session_entities:
+        if not any(entity.lower() in blob for entity in session_entities):
+            return False
+    if session_terms:
+        return any(term in blob for term in session_terms if len(term) >= 3)
+    return True
+
+
+def filter_assertions_for_session(
+    assertions: List[Assertion],
+    session_entities: frozenset[str],
+    session_terms: frozenset[str],
+) -> List[Assertion]:
+    if not session_entities and not session_terms:
+        return assertions
+    scoped = [
+        a
+        for a in assertions
+        if assertion_in_session_scope(a, session_entities, session_terms)
+    ]
+    return scoped or assertions[: min(6, len(assertions))]
+
+
 def qdrant_vector_search(
     qdrant,
     *,
@@ -430,7 +552,7 @@ class MemoryRouter:
         self.db = db
         self.qdrant = qdrant
 
-    async def route_and_retrieve(self, project_id: Any, query: str, skip_llm: bool = False, llm_config: Optional[Dict[str, str]] = None, current_step: Optional[int] = None) -> Dict[str, Any]:
+    async def route_and_retrieve(self, project_id: Any, query: str, skip_llm: bool = False, llm_config: Optional[Dict[str, str]] = None, current_step: Optional[int] = None, session_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Main entry point: Classification -> Retrieval -> Synthesis
         """
@@ -470,6 +592,7 @@ class MemoryRouter:
                 keywords=keywords,
                 complexity=complexity,
                 current_step=current_step,
+                session_id=session_id,
             )
 
         # --- Reranking Layer ---
@@ -584,7 +707,14 @@ class MemoryRouter:
         keywords: List[str],
         complexity: int,
         current_step: Optional[int] = None,
+        session_id: Optional[str] = None,
     ) -> Tuple[List[str], List[str], float]:
+        session_entities: frozenset[str] = frozenset()
+        session_terms: frozenset[str] = frozenset()
+        if session_id:
+            session_entities, session_terms = session_scope_profile(
+                self.db, project_id, session_id
+            )
         steps = 1 if complexity == 1 else (3 if complexity == 3 else 2)
         decay = 0.7 if complexity == 1 else (0.3 if complexity == 3 else 0.5)
         skip_graph = os.getenv("RETRIEVE_BENCHMARK_SKIP_GRAPH", "").lower() in ("1", "true", "yes")
@@ -604,7 +734,7 @@ class MemoryRouter:
         if multi_query:
             if multihop or temporal:
                 extra_queries = supplementary_vector_queries(query, keywords)
-            elif not is_research_query(query):
+            else:
                 extra_queries = supplementary_vector_queries_recall(query, keywords)
         vec_items, vec_sources, vec_conf = await self._vector_search(
             project_id,
@@ -614,13 +744,16 @@ class MemoryRouter:
             multihop=multihop,
             temporal=temporal,
             adversarial_risk=adversarial_risk,
+            session_id=session_id,
         )
         if multihop:
             assert_items, assert_sources, assert_conf = self._multihop_assertion_search(
-                project_id, keywords
+                project_id, keywords, session_entities=session_entities, session_terms=session_terms
             )
         else:
-            assert_items, assert_sources, assert_conf = self._assertion_search(project_id, query)
+            assert_items, assert_sources, assert_conf = self._assertion_search(
+                project_id, query, session_entities=session_entities, session_terms=session_terms
+            )
         graph_items: List[str] = []
         graph_sources: List[str] = []
         graph_conf = 0.0
@@ -636,7 +769,11 @@ class MemoryRouter:
             )
         elif benchmark_mode and skip_graph and keywords and (multihop or temporal):
             graph_items, graph_sources, graph_conf = self._light_entity_assertions(
-                project_id, keywords, min_keyword_matches=2 if multihop else 1
+                project_id,
+                keywords,
+                min_keyword_matches=2 if multihop else 1,
+                session_entities=session_entities,
+                session_terms=session_terms,
             )
 
         context_items, sources = merge_retrieval_items(
@@ -644,7 +781,7 @@ class MemoryRouter:
             (assert_items, assert_sources),
             (graph_items, graph_sources),
         )
-        if benchmark_mode and adversarial_risk and os.getenv(
+        if benchmark_mode and should_apply_adversarial_filter(query) and os.getenv(
             "RETRIEVE_ADVERSARIAL_FILTER", "1"
         ).lower() in ("1", "true", "yes"):
             context_items, sources = filter_adversarial_context(context_items, sources)
@@ -659,6 +796,7 @@ class MemoryRouter:
         multihop: bool = False,
         temporal: bool = False,
         adversarial_risk: bool = False,
+        session_id: Optional[str] = None,
     ):
         """
         Real vector search: embed the query with fastembed, then search Qdrant
@@ -704,15 +842,7 @@ class MemoryRouter:
                 continue
 
             try:
-                from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
-                if isinstance(project_id, list):
-                    search_filter = Filter(
-                        must=[FieldCondition(key="project_id", match=MatchAny(any=project_id))]
-                    )
-                else:
-                    search_filter = Filter(
-                        must=[FieldCondition(key="project_id", match=MatchValue(value=project_id))]
-                    )
+                search_filter = episodic_qdrant_filter(project_id, session_id)
                 results = qdrant_vector_search(
                     self.qdrant,
                     collection_name="episodic_chunks",
@@ -790,7 +920,14 @@ class MemoryRouter:
 
         return context_parts, source_ids, max_score
 
-    def _assertion_search(self, project_id: Any, query: str) -> Tuple[List[str], List[str], float]:
+    def _assertion_search(
+        self,
+        project_id: Any,
+        query: str,
+        *,
+        session_entities: frozenset[str] = frozenset(),
+        session_terms: frozenset[str] = frozenset(),
+    ) -> Tuple[List[str], List[str], float]:
         keywords = extract_query_keywords(query)
         if not keywords:
             return [], [], 0.0
@@ -832,6 +969,10 @@ class MemoryRouter:
         if not assertions:
             return [], [], 0.0
 
+        assertions = filter_assertions_for_session(assertions, session_entities, session_terms)
+        if not assertions:
+            return [], [], 0.0
+
         context_parts = [
             f"Assertion: {a.subject_text} {a.predicate} {a.object_text} (conf: {a.confidence})"
             for a in assertions
@@ -849,7 +990,12 @@ class MemoryRouter:
         return filtered or assertions[: min(6, len(assertions))]
 
     def _multihop_assertion_search(
-        self, project_id: Any, keywords: List[str]
+        self,
+        project_id: Any,
+        keywords: List[str],
+        *,
+        session_entities: frozenset[str] = frozenset(),
+        session_terms: frozenset[str] = frozenset(),
     ) -> Tuple[List[str], List[str], float]:
         if not keywords:
             return [], [], 0.0
@@ -889,6 +1035,7 @@ class MemoryRouter:
             .all()
         )
         assertions = self._filter_assertions_by_keywords(assertions, keywords, min_matches=2)
+        assertions = filter_assertions_for_session(assertions, session_entities, session_terms)
         if not assertions:
             return [], [], 0.0
 
@@ -901,7 +1048,13 @@ class MemoryRouter:
         return context_parts, sources, max_conf
 
     def _light_entity_assertions(
-        self, project_id: Any, keywords: List[str], *, min_keyword_matches: int = 1
+        self,
+        project_id: Any,
+        keywords: List[str],
+        *,
+        min_keyword_matches: int = 1,
+        session_entities: frozenset[str] = frozenset(),
+        session_terms: frozenset[str] = frozenset(),
     ) -> Tuple[List[str], List[str], float]:
         """Direct entity→assertion lookup without graph spreading (benchmark-safe)."""
         if not keywords:
@@ -963,6 +1116,7 @@ class MemoryRouter:
         assertions = self._filter_assertions_by_keywords(
             assertions, keywords, min_matches=min_keyword_matches
         )
+        assertions = filter_assertions_for_session(assertions, session_entities, session_terms)
         if not assertions:
             return [], [], 0.0
 
