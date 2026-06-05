@@ -1,0 +1,36 @@
+"""Structured memory backend — active assertions only (supersession simulation)."""
+
+from __future__ import annotations
+
+from benchmarks.metrics.tokens import count_tokens
+
+
+class StructuredMemoryBackend:
+    """Stores facts with status; search returns active facts only."""
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, list[dict]] = {}
+
+    def reset(self, session_id: str) -> None:
+        self._sessions[session_id] = []
+
+    def add(self, session_id: str, messages: list[dict]) -> None:
+        bucket = self._sessions.setdefault(session_id, [])
+        for msg in messages:
+            bucket.append(
+                {
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", ""),
+                    "status": msg.get("status", "active"),
+                }
+            )
+
+    def search(self, session_id: str, query: str) -> str:
+        del query
+        messages = self._sessions.get(session_id, [])
+        active = [m for m in messages if m.get("status", "active") == "active"]
+        lines = [f"{m.get('role', 'user')}: {m.get('content', '')}" for m in active]
+        return "\n".join(lines)
+
+    def token_count(self, text: str) -> int:
+        return count_tokens(text)

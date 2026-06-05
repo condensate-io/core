@@ -45,9 +45,24 @@ docs/
 scratch/
 custom_scripts/
 scripts/
-# Benchmarks — only the published comparative report is committed (see benchmarks/results/.gitignore)
+# Benchmarks — commit harness; keep run artifacts local (see benchmarks/results/.gitignore)
 benchmarks/**
+!benchmarks/backends/
+!benchmarks/backends/**
+!benchmarks/data/
+!benchmarks/data/**
+!benchmarks/metrics/
+!benchmarks/metrics/**
+!benchmarks/runners/
+!benchmarks/runners/**
+!benchmarks/scripts/
+!benchmarks/scripts/**
+!benchmarks/tests/
+!benchmarks/tests/**
+!benchmarks/docker-compose.bench.yml
+!benchmarks/README.md
 !benchmarks/results/
+!benchmarks/results/.gitignore
 !benchmarks/results/locomo10_comparative_report.html
 CUDA_DRIVER_*
 yc_session_export_nc.md
@@ -92,6 +107,7 @@ docs/llm.md
 docs/mcp.md
 docs/mcp.md
 ROADMAP*
+!benchmarks/docs/
 benchmarks/docs/*
-benchmarks/runners/generate_*
+!benchmarks/docs/COMPETITIVE_POSITIONING.md
 benchmarks/loco_benchmark_work_tracker.md
