@@ -1,0 +1,37 @@
+name: LoCoMo mini regression
+
+on:
+  schedule:
+    # Mondays 06:00 UTC — informational only (LOC-016)
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  locomo-mini:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: LoCoMo harness unit tests (mini fixture)
+        run: |
+          pytest benchmarks/tests/test_locomo.py benchmarks/tests/test_condensate_backend.py -q
+      - name: Mini benchmark smoke (no condensate stack)
+        env:
+          LOCOMO_DATA_PATH: benchmarks/data/locomo_mini.json
+        run: |
+          python benchmarks/runners/run_locomo.py \
+            --backend all \
+            --skip-condensate \
+            --output /tmp/locomo-mini-report.json
+          python -c "import json; p=json.load(open('/tmp/locomo-mini-report.json')); fc=p['backends']['full_context']['summary']; assert fc['retrieval_accuracy'] >= 0.8"

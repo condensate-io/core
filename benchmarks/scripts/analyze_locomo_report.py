@@ -67,6 +67,53 @@ def _token_efficiency_for_backend(
     return rows
 
 
+def _collect_misses_for_category(
+    backend_report: dict[str, Any],
+    category: str,
+) -> list[dict[str, Any]]:
+    misses: list[dict[str, Any]] = []
+    for sample in backend_report.get("sample_reports", []):
+        sample_id = str(sample.get("sample_id", "unknown"))
+        for qa in sample.get("qa_results", []):
+            if qa.get("retrieval_hit"):
+                continue
+            if str(qa.get("category") or "unknown") != category:
+                continue
+            misses.append(
+                {
+                    "sample_id": sample_id,
+                    "question": qa.get("question"),
+                    "gold_answer": qa.get("answer"),
+                    "native_answer": qa.get("native_answer"),
+                    "evidence_ids": qa.get("evidence_ids", []),
+                    "evidence_recall": qa.get("evidence_recall"),
+                    "retrieved_tokens": qa.get("retrieved_tokens"),
+                }
+            )
+    return misses
+
+
+def _top_priority_misses(
+    payload: dict[str, Any],
+    *,
+    backend: str = "condensate",
+    limit: int = 12,
+) -> dict[str, list[dict[str, Any]]]:
+    """Rank retrieval misses for LOC-011/019 follow-up (multi-hop + single-hop first)."""
+    report = payload.get("backends", {}).get(backend, {})
+    ranked: dict[str, list[dict[str, Any]]] = {}
+    for category in ("multi-hop", "single-hop"):
+        misses = _collect_misses_for_category(report, category)
+        misses.sort(
+            key=lambda row: (
+                float(row.get("evidence_recall") or 0.0),
+                -int(row.get("retrieved_tokens") or 0),
+            ),
+        )
+        ranked[category] = misses[:limit]
+    return ranked
+
+
 def analyze_report(payload: dict[str, Any]) -> dict[str, Any]:
     backends = payload.get("backends", {})
     misses_by_backend: dict[str, dict[str, dict[str, int]]] = {}
@@ -85,6 +132,7 @@ def analyze_report(payload: dict[str, Any]) -> dict[str, Any]:
         "misses_by_category": misses_by_backend,
         "example_misses": example_misses_by_backend,
         "token_efficiency_by_conversation": token_efficiency_by_backend,
+        "priority_misses": _top_priority_misses(payload),
     }
 
 
@@ -153,6 +201,32 @@ def render_markdown(analysis: dict[str, Any]) -> str:
             lines.append(f"- Retrieved tokens: {ex.get('retrieved_tokens', '—')}")
             lines.append("")
 
+    priority = analysis.get("priority_misses") or {}
+    if priority:
+        lines.append("## Priority retrieval misses (condensate — multi-hop & single-hop)")
+        lines.append("")
+        lines.append(
+            "Tagged for LOC-011 / LOC-019: lowest evidence recall first, then highest token use."
+        )
+        lines.append("")
+        for category in ("multi-hop", "single-hop"):
+            rows = priority.get(category) or []
+            lines.append(f"### {category} ({len(rows)} shown)")
+            lines.append("")
+            if not rows:
+                lines.append("_No misses in this category._")
+                lines.append("")
+                continue
+            for idx, row in enumerate(rows, start=1):
+                lines.append(
+                    f"{idx}. **{row.get('sample_id')}** — evidence_recall={row.get('evidence_recall', '—')}, "
+                    f"tokens={row.get('retrieved_tokens', '—')}"
+                )
+                lines.append(f"   - Q: {row.get('question')}")
+                lines.append(f"   - Gold: {row.get('gold_answer')}")
+                lines.append(f"   - Evidence: {', '.join(row.get('evidence_ids') or []) or '—'}")
+                lines.append("")
+
     lines.append("## Token efficiency by conversation")
     lines.append("")
     for backend in backends:
@@ -204,22 +278,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze LoCoMo benchmark JSON reports")
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=None, help="Markdown output path")
-    parser.add_argument("--csv", type=Path, default=None, help="Optional CSV export of miss counts")
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        default=None,
+        help="Optional CSV export of miss counts (default: <input_dir>/locomo10_misses_by_category.csv)",
+    )
     args = parser.parse_args()
 
     payload = json.loads(args.input.read_text(encoding="utf-8"))
     analysis = analyze_report(payload)
     markdown = render_markdown(analysis)
 
-    if args.output:
-        args.output.write_text(markdown, encoding="utf-8")
-        print(f"Wrote {args.output}", flush=True)
-    else:
-        sys.stdout.write(markdown)
+    output = args.output or (args.input.parent / "locomo10_failure_analysis.md")
+    output.write_text(markdown, encoding="utf-8")
+    print(f"Wrote {output}", flush=True)
 
-    if args.csv:
-        write_csv(analysis, args.csv)
-        print(f"Wrote {args.csv}", flush=True)
+    csv_path = args.csv or (args.input.parent / "locomo10_misses_by_category.csv")
+    write_csv(analysis, csv_path)
+    print(f"Wrote {csv_path}", flush=True)
 
     return 0
 
