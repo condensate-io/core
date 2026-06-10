@@ -45,8 +45,43 @@ class CondensateBackend:
         self.qa_delay_s = float(os.getenv("CONDENSATE_QA_DELAY_S", "0"))
         self.last_strategy = ""
         self.last_native_answer = ""
+        self.last_question_type = ""
+        self.last_recall_plan: dict[str, Any] = {}
+        self.last_sources: list[str] = []
         read_timeout = float(os.getenv("CONDENSATE_HTTP_READ_TIMEOUT", "900"))
         self._client = httpx.Client(timeout=httpx.Timeout(60.0, read=read_timeout))
+        self._ensure_api_key()
+
+    def _ensure_api_key(self) -> None:
+        """Retrieve requires auth; bulk ingest does not — bootstrap a key if missing."""
+        placeholder_markers = ("your-api-key", "changeme", "sk-your", "example")
+        if self.api_key and not any(m in self.api_key.lower() for m in placeholder_markers):
+            if self._probe_api_key(self.api_key):
+                return
+        response = self._client.post(
+            f"{self.base_url}/api/admin/keys",
+            params={"name": "locomo-benchmark", "project_id": "locomo-benchmark"},
+        )
+        response.raise_for_status()
+        key = str(response.json().get("key", "")).strip()
+        if not key:
+            raise RuntimeError("Condensate admin /keys returned empty API key")
+        if not self._probe_api_key(key):
+            raise RuntimeError("Condensate API key probe failed (401 on /memory/retrieve)")
+        self.api_key = key
+        print("[condensate] bootstrapped API key via /api/admin/keys", file=sys.stderr, flush=True)
+
+    def _probe_api_key(self, api_key: str) -> bool:
+        project_id = _project_id("locomo-benchmark")
+        try:
+            response = self._client.post(
+                f"{self.base_url}/api/v1/memory/retrieve",
+                json={"query": "probe", "project_id": project_id, "session_id": "probe"},
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            return response.status_code != 401
+        except httpx.HTTPError:
+            return False
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -155,6 +190,9 @@ class CondensateBackend:
                 answer = str(data.get("answer") or "")
                 self.last_strategy = str(data.get("strategy") or "")
                 self.last_native_answer = answer if answer else context
+                self.last_question_type = str(data.get("question_type") or "")
+                self.last_recall_plan = dict(data.get("recall_plan") or {})
+                self.last_sources = list(data.get("sources") or [])
                 if self.qa_delay_s > 0:
                     time.sleep(self.qa_delay_s)
                 return context if context else answer

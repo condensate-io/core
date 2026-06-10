@@ -48,8 +48,9 @@ def test_consolidator(mock_db):
         )
     ]
     
-    # Mock no existing
+    # Mock no existing duplicates or conflicts
     mock_db.execute.return_value.scalars.return_value.first.return_value = None
+    mock_db.execute.return_value.scalars.return_value.all.return_value = []
     
     con.consolidate(project_id, assertions, entity_map)
     

@@ -20,8 +20,10 @@ Used for semantic search and deduplication:
 -   **Assertion Vectors**: Embeddings of condensed facts.
 
 ### 3. The Engines
--  - **Memory Router (`src/retrieve/router.py`)**:
+- **Memory Router (`src/retrieve/router.py`)**:
     -   **Traffic Control**: Decides if a query needs "Recall" (Vector/Graph) or "Research" (Cognitive Graph).
+    -   **Astrocyte Recall Gate**: Pre-retrieval question typing and retrieval-mode routing ([astrocyte_memory.md](astrocyte_memory.md)).
+    -   **Astrocyte Evidence Verifier**: Post-retrieval support, temporal validity, and abstention checks.
     -   **Spreading Activation**: Traverses the concept graph using Hebbian weights to pull relevant context.
     -   **Deterministic Path**: Supports `skip_llm` to return raw facts without hallucination.
 - **Condenser (`src/engine/condenser.py`)**:
@@ -41,6 +43,7 @@ Used for semantic search and deduplication:
 ### Technical Reference
 - [Database Schema](schema.md)
 - [Learning System Architecture](learning_system.md)
+- [Astrocyte Memory](astrocyte_memory.md)
 - [MCP Server Specification](../mcp.md)
 - [Edge API Reference](../api.md)
 
@@ -55,7 +58,7 @@ Used for semantic search and deduplication:
 
 1.  **Ingress**: `Raw Data` -> `Ingest API` -> `Episodic Store` & `Qdrant`.
 2.  **Condensation**: `Scheduler` -> `Condenser` -> Reads `Unprocessed Memories` -> LLM Extraction -> Writes `Assertions` + `Proof Envelopes`.
-3.  **Traffic Control Retrieval**: `Query` -> `MemoryRouter` -> (Strategy: Recall/Research) -> (Optional: LLM Synthesis) -> Response.
+3.  **Traffic Control Retrieval**: `Query` -> `Astrocyte Recall Gate` -> `MemoryRouter` -> `Evidence Verifier` -> (Optional: LLM Synthesis) -> Response.
 
 ## Key Concepts
 

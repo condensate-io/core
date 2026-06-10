@@ -651,7 +651,10 @@ async def playground_retrieve(
 
     mr = MemoryRouter(db, qdrant)
     result = await mr.route_and_retrieve(
-        req.project_id, req.query, skip_llm=req.skip_llm, llm_config=req.llm_config
+        req.project_id,
+        req.query,
+        skip_llm=req.skip_llm,
+        llm_config=req.llm_config,
     )
     return result
 

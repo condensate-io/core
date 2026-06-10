@@ -36,6 +36,9 @@ def test_is_multihop_query():
     assert is_multihop_query(
         "Would Caroline still want to pursue counseling as a career if she hadn't received support growing up?"
     )
+    assert is_multihop_query("What are John's suspected health problems?")
+    assert is_multihop_query("Which US state was Sam travelling in during October 2023?")
+    assert is_multihop_query("Is it likely that Nate has friends besides Joanna?")
     assert not is_multihop_query("When did Caroline go to the LGBTQ support group?")
 
 
@@ -62,6 +65,16 @@ def test_supplementary_queries_include_psychology_for_fields_question():
     query = "What fields would Caroline be likely to pursue in her educaton?"
     extras = supplementary_vector_queries(query, extract_query_keywords(query))
     assert any("psychology" in e.lower() for e in extras)
+
+
+def test_supplementary_queries_health_and_state_multihop():
+    health_q = "What are John's suspected health problems?"
+    health_extras = supplementary_vector_queries(health_q, extract_query_keywords(health_q))
+    assert any("health" in e.lower() for e in health_extras)
+
+    state_q = "Which US state did Jolene visit during her internship?"
+    state_extras = supplementary_vector_queries(state_q, extract_query_keywords(state_q))
+    assert any("visit" in e.lower() or "state" in e.lower() for e in state_extras)
     assert is_boilerplate_episodic("Melanie: Thanks, Caroline. They're a real support.")
     assert not is_boilerplate_episodic(
         "Caroline: I'm keen on counseling or working in mental health."
@@ -95,9 +108,22 @@ def test_heuristic_rerank_items_prefers_observations():
     assert any("observation" in line.lower() for line in ranked)
 
 
+def test_heuristic_rerank_swap_trap_prefers_focus_over_wrong_entity():
+    items = [
+        "[observation D5:10] Pottery is a significant part of Melanie's life.",
+        "[observation D4:3] Caroline received a special necklace symbolizing love, faith, and strength.",
+        "Melanie: I love making figurines for my family.",
+    ]
+    query = "What does Melanie's necklace symbolize?"
+    ranked = heuristic_rerank_items(query, items, top_n=2)
+    assert "D4:3" in ranked[0]
+
+
 def test_is_adversarial_risk_query():
     assert is_adversarial_risk_query("What are Melanie's plans for the summer with respect to adoption?")
+    assert is_adversarial_risk_query("What does Melanie's necklace symbolize?")
     assert not is_adversarial_risk_query("When did Caroline go to the LGBTQ support group?")
+    assert not is_adversarial_risk_query("What do Melanie's kids like?")
 
 
 def test_filter_adversarial_context_limits_raw_dialog(monkeypatch):
@@ -111,6 +137,37 @@ def test_filter_adversarial_context_limits_raw_dialog(monkeypatch):
     filtered_items, filtered_sources = filter_adversarial_context(items, sources)
     assert filtered_items[0].startswith("[observation")
     assert len(filtered_items) == 2
+
+
+def test_filter_adversarial_context_aggressive_drops_raw_dialog():
+    items = [
+        "[observation D2:8] Melanie is researching adoption agencies.",
+        "Melanie: We might adopt this summer!",
+        "Caroline: That's wonderful!",
+    ]
+    sources = ["a", "b", "c"]
+    filtered_items, filtered_sources = filter_adversarial_context(
+        items, sources, aggressive=True
+    )
+    # Aggressive mode drops raw dialog entirely so trap answers cannot leak.
+    assert all(item.startswith("[observation") for item in filtered_items)
+    assert len(filtered_items) == 1
+
+
+def test_filter_adversarial_context_aggressive_caps_safe_lines():
+    items = [f"[observation D{i}:1] fact {i}" for i in range(10)]
+    sources = [str(i) for i in range(10)]
+    filtered_items, _ = filter_adversarial_context(
+        items, sources, aggressive=True, safe_limit=3
+    )
+    assert len(filtered_items) == 3
+
+
+def test_is_adversarial_risk_query_uses_shared_phrasing():
+    # Counterfactual phrasing should now be detected as adversarial risk.
+    assert is_adversarial_risk_query(
+        "What would Bob pursue if he hadn't changed careers?"
+    )
 
 
 def test_is_structured_context_line():

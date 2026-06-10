@@ -4,7 +4,8 @@ from benchmarks.backends.condensate import CondensateBackend
 
 
 def test_condensate_search_prefers_context_over_source_ids():
-    backend = CondensateBackend(base_url="http://test")
+    with patch.object(CondensateBackend, "_ensure_api_key", return_value=None):
+        backend = CondensateBackend(base_url="http://test", api_key="sk-test-key-valid")
     response = MagicMock()
     response.status_code = 200
     response.json.return_value = {

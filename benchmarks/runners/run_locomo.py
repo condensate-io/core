@@ -39,6 +39,29 @@ GRADING_POLICY: dict[str, str] = {
 }
 
 
+def _apply_answer_feedback(backend: Any, row: dict[str, Any], qa: dict[str, Any]) -> None:
+    """Optional eval-loop hook: answer-aware reinforcement via feedback API."""
+    source_ids = getattr(backend, "last_sources", []) or []
+    if not source_ids:
+        return
+    payload = {
+        "source_ids": source_ids,
+        "correct": bool(row.get("native_correct")),
+        "gold_evidence_ids": list(qa.get("evidence") or qa.get("supporting_turns") or []),
+        "retrieval_path": list(row.get("recall_plan", {}).get("retrieval_modes") or []),
+    }
+    try:
+        response = backend._client.post(
+            f"{backend.base_url}/api/v1/memory/feedback",
+            json=payload,
+            headers=backend._headers(),
+        )
+        response.raise_for_status()
+        row["feedback"] = response.json()
+    except Exception as exc:
+        row["feedback_error"] = str(exc)
+
+
 def resolve_backends(spec: str, *, skip_condensate: bool = False) -> list[str]:
     if spec == "all":
         names = list(DEFAULT_BACKEND_ORDER)
@@ -66,6 +89,11 @@ def score_row(
         native = getattr(backend, "last_native_answer", "") or ""
         row["native_answer"] = native
         row["strategy"] = getattr(backend, "last_strategy", "")
+        row["question_type"] = getattr(backend, "last_question_type", "")
+        row["recall_plan"] = getattr(backend, "last_recall_plan", {})
+        row["memory_type"] = row["recall_plan"].get("question_type") or row["question_type"]
+        if os.getenv("CONDENSATE_ANSWER_FEEDBACK", "").lower() in ("1", "true", "yes"):
+            _apply_answer_feedback(backend, row, qa)
         grade = grader.grade(
             qa["question"],
             qa.get("answer"),

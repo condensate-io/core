@@ -3,8 +3,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from src.db.models import Assertion, Entity
 from src.llm.schemas import ExtractedAssertion
+from src.learn.supersession import apply_supersession
 import uuid
 import os
+from datetime import datetime, timezone
 from src.engine.guardrails import GuardrailEngine
 
 class KnowledgeConsolidator:
@@ -69,11 +71,13 @@ class KnowledgeConsolidator:
                             current_prov.append(ev_dict)
                     
                     existing.provenance = current_prov
+                    existing.evidence_count = len(current_prov)
                     
                 # Update confidence and guardrail scores
                 existing.confidence = max(existing.confidence, claim.confidence)
                 existing.instruction_score = max(existing.instruction_score, guard_res["instruction_score"])
                 existing.safety_score = max(existing.safety_score, guard_res["safety_score"])
+                apply_supersession(self.db, existing)
                 self.db.add(existing)
 
             else:
@@ -99,8 +103,12 @@ class KnowledgeConsolidator:
                     rejection_reason=rejection_reason,
                     instruction_score=guard_res["instruction_score"],
                     safety_score=guard_res["safety_score"],
-                    provenance=processed_provenance
+                    provenance=processed_provenance,
+                    evidence_count=len(processed_provenance),
+                    valid_from=datetime.now(timezone.utc),
+                    stratum="atomic_assertion",
                 )
+                apply_supersession(self.db, new_assertion)
                 self.db.add(new_assertion)
         
         self.db.commit()
