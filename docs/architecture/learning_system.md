@@ -65,7 +65,13 @@ The system implements a Hebbian-inspired learning model to manage the "vibrancy"
 
 ## Retrieval Workflow (The "Filter")
 
-When a new Query comes in:
+When a new Query comes in, **Astrocyte Memory** ([astrocyte_memory.md](astrocyte_memory.md)) extends this workflow:
+
+1.  **Recall Gate**: Classify question type and select retrieval modes (latest canonical, temporal chain, persona, events, abstention).
+2.  **Hybrid Retrieval**: Vector search, assertions, graph traversal, and mode-specific paths.
+3.  **Evidence Verifier**: Check support, temporal validity, and abstention before synthesis.
+
+Legacy baseline steps:
 1.  **Vector Search (Learnings)**: Find top K relevant Learnings.
 2.  **Graph Traversal (Ontology)**: Find related concepts.
 3.  **Vector Search (Memories)**: Find specific recent details (standard RAG).

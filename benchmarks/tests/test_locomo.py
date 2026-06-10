@@ -22,6 +22,7 @@ from benchmarks.data.locomo_loader import (
 from benchmarks.metrics.judge import AnswerGrader
 from benchmarks.metrics.tokens import count_tokens
 from benchmarks.metrics.qa import (
+    adversarial_passes,
     answer_in_context,
     grade_answer,
     list_answer_in_context,
@@ -82,6 +83,17 @@ def test_observation_messages_include_dia_id():
     assert len(messages) == 1
     assert "D1:3" in messages[0]["content"]
     assert messages[0]["metadata"]["dia_id"] == "D1:3"
+
+
+def test_adversarial_passes_uses_word_boundary_for_short_traps():
+    assert adversarial_passes(
+        "Caroline went to a support group yesterday.",
+        "Yes",
+    )
+    assert not adversarial_passes(
+        "Yes, Oscar belongs to Melanie.",
+        "Yes",
+    )
 
 
 def test_multihop_retrieval_hit_when_evidence_complete():

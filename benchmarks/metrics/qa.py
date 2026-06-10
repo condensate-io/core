@@ -210,14 +210,22 @@ def answer_in_context(answer: str | int | float | None, context: str) -> bool:
     return hits / len(tokens) >= 0.6
 
 
+def _trap_phrase_present(trap_norm: str, text_norm: str) -> bool:
+    if not trap_norm or not text_norm:
+        return False
+    if len(trap_norm) <= 3:
+        return bool(re.search(rf"\b{re.escape(trap_norm)}\b", text_norm))
+    return trap_norm in text_norm
+
+
 def adversarial_passes(context: str, trap: str, generated: str = "") -> bool:
     """Adversarial QA: pass when trap answer is absent from context and generation."""
     trap_norm = normalize(trap)
     ctx_norm = normalize(context)
     gen_norm = normalize(generated)
-    if trap_norm and trap_norm in ctx_norm:
+    if _trap_phrase_present(trap_norm, ctx_norm):
         return False
-    if gen_norm and trap_norm and trap_norm in gen_norm:
+    if gen_norm and trap_norm and _trap_phrase_present(trap_norm, gen_norm):
         return False
     if gen_norm in {"unknown", ""}:
         return True
@@ -350,12 +358,26 @@ def summarize_qa_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     by_category: dict[str, dict[str, Any]] = {}
     by_category_native: dict[str, dict[str, Any]] = {}
     by_category_graded: dict[str, dict[str, Any]] = {}
+    by_question_type: dict[str, dict[str, Any]] = {}
+    by_memory_type: dict[str, dict[str, Any]] = {}
     for row in results:
         cat = row.get("category", "unknown")
         bucket = by_category.setdefault(cat, {"total": 0, "hits": 0})
         bucket["total"] += 1
         if row["retrieval_hit"]:
             bucket["hits"] += 1
+        qtype = row.get("question_type") or row.get("recall_plan", {}).get("question_type")
+        if qtype:
+            qb = by_question_type.setdefault(str(qtype), {"total": 0, "hits": 0})
+            qb["total"] += 1
+            if row["retrieval_hit"]:
+                qb["hits"] += 1
+        mtype = row.get("memory_type")
+        if mtype:
+            mb = by_memory_type.setdefault(str(mtype), {"total": 0, "hits": 0})
+            mb["total"] += 1
+            if row["retrieval_hit"]:
+                mb["hits"] += 1
         if has_native:
             nb = by_category_native.setdefault(cat, {"total": 0, "hits": 0})
             nb["total"] += 1
@@ -372,6 +394,10 @@ def summarize_qa_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         bucket["accuracy"] = round(bucket["hits"] / bucket["total"], 4) if bucket["total"] else 0.0
     for cat, bucket in by_category_graded.items():
         bucket["accuracy"] = round(bucket["hits"] / bucket["total"], 4) if bucket["total"] else 0.0
+    for qtype, bucket in by_question_type.items():
+        bucket["accuracy"] = round(bucket["hits"] / bucket["total"], 4) if bucket["total"] else 0.0
+    for mtype, bucket in by_memory_type.items():
+        bucket["accuracy"] = round(bucket["hits"] / bucket["total"], 4) if bucket["total"] else 0.0
     avg_evidence = round(sum(r["evidence_recall"] for r in results) / total, 4) if total else 0.0
     summary: dict[str, Any] = {
         "total": total,
@@ -380,6 +406,10 @@ def summarize_qa_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_evidence_recall": avg_evidence,
         "by_category": by_category,
     }
+    if by_question_type:
+        summary["by_question_type"] = by_question_type
+    if by_memory_type:
+        summary["by_memory_type"] = by_memory_type
     if has_native:
         summary["native_hits"] = native_hits
         summary["native_accuracy"] = round(native_hits / total, 4) if total else 0.0

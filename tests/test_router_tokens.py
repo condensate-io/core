@@ -34,13 +34,15 @@ def test_build_token_metrics_synthesized():
 
 
 @pytest.mark.asyncio
-async def test_route_and_retrieve_includes_token_metrics():
+async def test_route_and_retrieve_includes_token_metrics(monkeypatch):
+    monkeypatch.setenv("RETRIEVE_BENCHMARK_MODE", "1")
     db = MagicMock()
     qdrant = MagicMock()
     router = MemoryRouter(db, qdrant)
 
     router._classify = AsyncMock(return_value={"strategy": "recall", "keywords": []})
     router._vector_search = AsyncMock(return_value=(["Vector Context"], ["doc1"], 0.5))
+    router._assertion_search = MagicMock(return_value=([], [], 0.0))
     router._synthesize = AsyncMock(return_value="The answer is 42")
 
     with patch("src.retrieve.reranker.LocalReranker") as mock_reranker_cls:
@@ -54,7 +56,7 @@ async def test_route_and_retrieve_includes_token_metrics():
     metrics = result["token_metrics"]
     assert metrics["router_classification"] == count_tokens(ROUTER_PROMPT.format(query="What is X?"))
     assert metrics["retrieved_context"] == count_tokens("Vector Context")
-    assert metrics["total_answer_call"] > 0
+    assert metrics["total_answer_call"] == 0
     assert set(metrics.keys()) == {
         "router_classification",
         "retrieved_context",

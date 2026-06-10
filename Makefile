@@ -1,11 +1,15 @@
 # Condensates — Docker-first test targets (run from WSL)
+SHELL := /bin/bash
 #
 #   make test              # unit + SDK suites (no GPU stack required)
 #   make test-integration    # Postgres + Qdrant integration tests
 #   make test-all            # everything above + benchmark demo
 
-COMPOSE := docker compose -f docker-compose.yml -f docker-compose.test.yml
+COMPOSE_BASE := docker compose -f docker-compose.yml
+COMPOSE := $(COMPOSE_BASE) -f docker-compose.test.yml
 COMPOSE_TEST := $(COMPOSE) --profile test
+COMPOSE_BENCH := $(COMPOSE_BASE) -f benchmarks/docker-compose.bench.yml
+COMPOSE_TEST_BENCH := $(COMPOSE_BENCH) -f docker-compose.test.yml --profile test
 
 PYTEST_UNIT := tests/ --ignore=tests/test_schema_integrity.py --ignore=tests/test_omnisim_scenarios.py -m "not integration"
 
@@ -31,8 +35,8 @@ test-benchmarks:
 		--backend all --skip-condensate --output /tmp/bench-locomo.json
 
 test-locomo-full:
-	$(COMPOSE) -f benchmarks/docker-compose.bench.yml up -d condensate-db condensate-vector condensate-ollama condensate-core
-	$(COMPOSE_TEST) -f benchmarks/docker-compose.bench.yml run --rm test-benchmarks \
+	$(COMPOSE_BENCH) up -d condensate-db condensate-vector condensate-ollama condensate-core
+	$(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
 		--dataset /app/benchmarks/data/locomo10.json \
 		--backend condensate \
 		--resume \
@@ -40,16 +44,27 @@ test-locomo-full:
 	$(MAKE) test-locomo-report
 
 test-locomo-v53-fair:
-	$(COMPOSE) -f docker-compose.yml -f benchmarks/docker-compose.bench.yml up -d condensate-db condensate-vector condensate-ollama condensate-core
-	CONDENSATE_SKIP_INGEST=0 $(COMPOSE) -f docker-compose.yml -f docker-compose.test.yml -f benchmarks/docker-compose.bench.yml run --rm test-benchmarks \
+	$(COMPOSE_BENCH) up -d condensate-db condensate-vector condensate-ollama
+	# Force-recreate the API so the bench overlay env (RETRIEVE_BENCHMARK_MODE=1,
+	# deterministic retrieval knobs) is actually applied. A stale already-running
+	# condensate-core silently runs with benchmark_mode=False and tanks scores.
+	$(COMPOSE_BENCH) up -d --force-recreate --no-deps condensate-core
+	bash benchmarks/scripts/check_benchmark_mode.sh
+	@BENCH_KEY=$$($(COMPOSE_TEST_BENCH) run --rm --no-deps --entrypoint python test-benchmarks benchmarks/scripts/ensure_benchmark_api_key.py); \
+	echo "Using benchmark API key $${BENCH_KEY:0:12}..."; \
+	CONDENSATE_SKIP_INGEST=0 CONDENSATE_API_KEY=$$BENCH_KEY $(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
 		--dataset /app/benchmarks/data/locomo10.json \
 		--backend condensate \
 		--output /app/benchmarks/results/locomo10_condensate_v53_fair.json \
 		2>&1 | tee benchmarks/results/locomo10_v53_fair.log
 
 test-locomo-v53-fair-resume:
-	$(COMPOSE) -f docker-compose.yml -f benchmarks/docker-compose.bench.yml up -d condensate-db condensate-vector condensate-ollama condensate-core
-	CONDENSATE_SKIP_INGEST=0 $(COMPOSE) -f docker-compose.yml -f docker-compose.test.yml -f benchmarks/docker-compose.bench.yml run --rm test-benchmarks \
+	$(COMPOSE_BENCH) up -d condensate-db condensate-vector condensate-ollama
+	$(COMPOSE_BENCH) up -d --force-recreate --no-deps condensate-core
+	bash benchmarks/scripts/check_benchmark_mode.sh
+	@BENCH_KEY=$$($(COMPOSE_TEST_BENCH) run --rm --no-deps --entrypoint python test-benchmarks benchmarks/scripts/ensure_benchmark_api_key.py); \
+	echo "Using benchmark API key $${BENCH_KEY:0:12}..."; \
+	CONDENSATE_SKIP_INGEST=0 CONDENSATE_API_KEY=$$BENCH_KEY $(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
 		--dataset /app/benchmarks/data/locomo10.json \
 		--backend condensate \
 		--resume \

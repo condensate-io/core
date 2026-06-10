@@ -117,6 +117,14 @@ class Assertion(Base):
     
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    valid_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    valid_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    supersedes_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("assertions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    stratum: Mapped[str] = mapped_column(String, default="atomic_assertion", index=True)
     
     provenance: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, default=[]) # [{episodic_id, quote}]
     
@@ -152,6 +160,7 @@ class Event(Base):
     attributes: Mapped[Dict[str, Any]] = mapped_column(JSONB, default={})
     confidence: Mapped[float] = mapped_column(Float, default=0.6)
     provenance: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, default=[])
+    stratum: Mapped[str] = mapped_column(String, default="temporal_event")
 
     project: Mapped["Project"] = relationship(back_populates="events")
 
@@ -224,6 +233,7 @@ class Policy(Base):
     scope: Mapped[str] = mapped_column(String, default="global") # global|project|task
     confidence: Mapped[float] = mapped_column(Float, default=0.7)
     provenance: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, default=[])
+    stratum: Mapped[str] = mapped_column(String, default="persona_state")
 
     project: Mapped["Project"] = relationship(back_populates="policies")
 

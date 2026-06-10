@@ -50,6 +50,8 @@ services:
       - .:/app
       - /app/frontend # Don't overwrite frontend dir with host mount if building inside
       - hf_cache:/root/.cache/huggingface
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://user:password@condensate-db:5432/condensate
       - QDRANT_HOST=condensate-vector

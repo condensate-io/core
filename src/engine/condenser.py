@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session
 
 from src.config import settings
 from src.config_cache import load_json_config
-from src.db.models import Assertion, EpisodicItem, OntologyNode, Policy
+from src.db.models import Assertion, EpisodicItem, Event, OntologyNode, Policy
 from src.engine.deterministic import DeterministicCondenser
 from src.engine.edge_synthesizer import EdgeSynthesizer
 from src.engine.ner import get_ner_engine
 from src.engine.thread_shard import get_thread_shard
 from src.learn.canonicalize import EntityCanonicalizer
+from src.learn.supersession import apply_supersession
 from src.llm.schemas import ExtractedEntity
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,11 @@ class Condenser:
             # 2. Distillation Strategy (Hybrid: Deterministic Baseline + LLM Enrichment)
             full_text = "\n".join([item.text for item in items])
             extracted_facts = []
+            extracted_events: List[dict] = []
+            extracted_policies: List[dict] = []
+            batch_stratum = "atomic_assertion"
+            if any((item.metadata_ or {}).get("kind") == "session_summary" for item in items):
+                batch_stratum = "session_summary"
 
             # --- Phase 1: Deterministic L3 (Fast Path) ---
             logger.info("[Condenser] Running Deterministic L3 extraction...")
@@ -228,8 +234,33 @@ class Condenser:
                                 "confidence": ass.confidence,
                                 "type": "fact",
                                 "evidence": [ev.model_dump() for ev in ass.evidence],
+                                "stratum": batch_stratum,
                             }
                             extracted_facts.append(fact)
+                        for event in b.events:
+                            extracted_events.append(
+                                {
+                                    "type": event.type,
+                                    "summary": event.summary,
+                                    "occurred_at": event.occurred_at,
+                                    "participants": event.participants,
+                                    "attributes": event.attributes,
+                                    "confidence": event.confidence,
+                                    "evidence": [ev.model_dump() for ev in event.evidence],
+                                }
+                            )
+                        for policy in b.policies:
+                            extracted_policies.append(
+                                {
+                                    "trigger": policy.trigger,
+                                    "rule": policy.rule,
+                                    "priority": policy.priority,
+                                    "scope": policy.scope,
+                                    "confidence": policy.confidence,
+                                    "evidence": [ev.model_dump() for ev in policy.evidence],
+                                    "type": "policy",
+                                }
+                            )
                 except Exception as e:
                     logger.error(
                         f"[Condenser] LLM enrichment failed: {e}. Progressing with L3 results only."
@@ -289,12 +320,11 @@ class Condenser:
                             source_hashes,
                             res_map,
                             temporal_step,
+                            batch_stratum,
                         )
                         assertion_futures.append(future)
 
                 elif f_type == "policy":
-                    # Policies usually vastly fewer, we can just process inline or parallelize similarly
-                    # For now let's parallelize for consistency
                     future = shard.submit(
                         self._prepare_policy,
                         project_id,
@@ -308,6 +338,16 @@ class Condenser:
                         f"[Condenser] Fact missing or has unknown type: {fact}"
                     )
 
+            for policy_data in extracted_policies:
+                future = shard.submit(
+                    self._prepare_policy,
+                    project_id,
+                    policy_data,
+                    source_hashes,
+                    temporal_step,
+                )
+                assertion_futures.append(future)
+
             # Phase 2: Commit (Sequential Main Thread)
             logger.debug("Waiting for %s assertion futures...", len(assertion_futures))
             for i, future in enumerate(assertion_futures):
@@ -315,9 +355,14 @@ class Condenser:
                     result_obj = future.result()
                     if result_obj:
                         logger.debug("Assertion %s ready. Adding to DB.", i)
+                        if isinstance(result_obj, Assertion):
+                            apply_supersession(self.db, result_obj)
                         self.db.add(result_obj)
                 except Exception as e:
                     logger.warning("Failed to prepare assertion/policy %s: %s", i, e)
+
+            for event_data in extracted_events:
+                self._persist_event(project_id, event_data, source_hashes)
 
             logger.debug("Committing transaction...")
             self.db.commit()
@@ -385,6 +430,7 @@ class Condenser:
         source_hashes: List[str],
         res_map: Optional[Dict[str, str]] = None,
         temporal_step: Optional[int] = None,
+        stratum: str = "atomic_assertion",
     ) -> Optional[Assertion]:
         """
         CPU-bound construction of Assertion: runs Guardrails and Signs Envelope.
@@ -457,6 +503,7 @@ class Condenser:
 
         # Provenance: Merge original evidence items with the new envelope
         provenance = fact.get("evidence", []) + [envelope]
+        from datetime import timezone
 
         return Assertion(
             id=assertion_id,
@@ -475,6 +522,9 @@ class Condenser:
             strength=1.0,  # Initial strength
             access_count=0,
             temporal_step=temporal_step,
+            valid_from=datetime.now(timezone.utc),
+            evidence_count=len(provenance),
+            stratum=fact.get("stratum", stratum),
         )
 
     def _prepare_policy(
@@ -502,4 +552,43 @@ class Condenser:
             rule=policy_data.get("rule", "unknown"),
             priority=policy_data.get("priority", 0.7),
             provenance=[envelope],
+            stratum="persona_state",
+        )
+
+    def _persist_event(
+        self,
+        project_id: uuid.UUID,
+        event_data: dict,
+        source_hashes: List[str],
+    ) -> None:
+        event_id = uuid.uuid4()
+        envelope = build_proof_envelope(
+            {
+                "event_id": str(event_id),
+                "type": event_data.get("type", "event"),
+                "summary": event_data.get("summary", ""),
+            },
+            source_hashes,
+        )
+        occurred_at = None
+        raw_occurred = event_data.get("occurred_at")
+        if raw_occurred:
+            try:
+                occurred_at = datetime.fromisoformat(str(raw_occurred).replace("Z", "+00:00"))
+            except ValueError:
+                occurred_at = None
+        provenance = list(event_data.get("evidence") or []) + [envelope]
+        self.db.add(
+            Event(
+                id=event_id,
+                project_id=project_id,
+                type=str(event_data.get("type", "event")),
+                summary=str(event_data.get("summary", "")),
+                participants=list(event_data.get("participants") or []),
+                occurred_at=occurred_at,
+                attributes=dict(event_data.get("attributes") or {}),
+                confidence=float(event_data.get("confidence", 0.7)),
+                provenance=provenance,
+                stratum="temporal_event",
+            )
         )

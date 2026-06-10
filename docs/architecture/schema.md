@@ -43,8 +43,13 @@ Structured facts distilled from Episodic Items. Links Subjects to Objects.
 - `object_text` (VARCHAR) - Fallback or literal value.
 - `polarity` (INT) - 1 for Affirmative, -1 for Negated.
 - `confidence` (FLOAT)
-- `status` (VARCHAR) - active, superseded, contested.
+- `status` (VARCHAR) - pending_review, approved, active, superseded, contested.
 - `provenance` (JSONB) - List of evidence objects explaining the derivation.
+- **Temporal / Astrocyte fields** (see [astrocyte_memory.md](astrocyte_memory.md)):
+  - `valid_from` / `valid_until` (TIMESTAMP) - assertion validity window
+  - `supersedes_id` (UUID, FK self) - prior assertion this row replaces
+  - `evidence_count` (INT) - provenance entry count
+  - `stratum` (VARCHAR) - raw, atomic_assertion, session_summary, persona_state, temporal_event
 - **Cognitive Fields**:
   - `strength` (FLOAT) - Hebbian weight (Long-Term Potentiation).
   - `access_count` (INT)
