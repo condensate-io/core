@@ -1,28 +1,29 @@
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from fastapi.testclient import TestClient
-from main import app
-from unittest.mock import patch, MagicMock
+
+from main import app, lifespan
+
 
 def test_app_startup_shutdown():
-    """
-    Test that the application starts up and shuts down correctly.
-    This verifies that the lifespan context manager runs without errors.
-    """
-    from main import lifespan
+    """Verify lifespan wiring without heavy startup (NER, Qdrant, stopwords)."""
     app.router.lifespan_context = lifespan
-    
-    # We need to mock start_scheduler and init_db to avoid side effects
-    # and to ensure we are only testing the wiring in main.py
+
+    mock_engine = MagicMock()
+    mock_engine.extract_entities.return_value = []
+
     with patch("main.start_scheduler") as mock_start, \
-         patch("main.init_db") as mock_init:
-        
+         patch("main.init_db") as mock_init, \
+         patch("qdrant_client.QdrantClient") as mock_qdrant_cls, \
+         patch("src.db.qdrant.init_qdrant"), \
+         patch("src.engine.stopwords.bootstrap_stop_words"), \
+         patch("src.llm.bootstrap.bootstrap_llm", new_callable=AsyncMock), \
+         patch("src.engine.ner.get_ner_engine", return_value=mock_engine):
+        mock_qdrant_cls.return_value = MagicMock()
+
         with TestClient(app) as client:
-            # Entering the context manager triggers the startup event
             mock_init.assert_called_once()
             mock_start.assert_called_once()
-            
-            # Perform a health check (or simple root request)
+
             response = client.get("/docs")
             assert response.status_code == 200
-            
-    # Exiting the context manager triggers the shutdown event (if any)

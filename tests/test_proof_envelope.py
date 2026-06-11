@@ -54,17 +54,21 @@ def test_proof_envelope_hmac_signature():
 
 
 def test_prepare_assertion_uses_rfc_envelope():
-    condenser = Condenser(MagicMock())
-    fact = {
-        "subject": "prod-db",
-        "predicate": "is",
-        "object": "read-only",
-        "confidence": 0.9,
-        "evidence": [{"item_id": "item-1", "quote": "db is read-only"}],
-    }
-    source_hashes = ["sha256_item_1", "sha256_item_2"]
+    mock_ner = MagicMock()
+    mock_ner.extract_entities.return_value = []
 
-    with patch("src.engine.guardrails.GuardrailEngine") as mock_guardrail_cls:
+    with patch("src.engine.condenser.get_ner_engine", return_value=mock_ner), \
+         patch("src.engine.guardrails.GuardrailEngine") as mock_guardrail_cls:
+        condenser = Condenser(MagicMock())
+        fact = {
+            "subject": "prod-db",
+            "predicate": "is",
+            "object": "read-only",
+            "confidence": 0.9,
+            "evidence": [{"item_id": "item-1", "quote": "db is read-only"}],
+        }
+        source_hashes = ["sha256_item_1", "sha256_item_2"]
+
         mock_guardrail_cls.return_value.check.return_value = {
             "should_block": False,
             "instruction_score": 0.0,

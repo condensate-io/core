@@ -13,7 +13,7 @@ COMPOSE_TEST_BENCH := $(COMPOSE_BENCH) -f docker-compose.test.yml --profile test
 
 PYTEST_UNIT := tests/ --ignore=tests/test_schema_integrity.py --ignore=tests/test_omnisim_scenarios.py -m "not integration"
 
-.PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-locomo-full test-locomo-v53-fair test-locomo-v53-fair-resume test-locomo-watch test-locomo-report test-contradiction test-integration test-all
+.PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-locomo-mini-regression test-locomo-audit-delta test-locomo-slices test-locomo-full test-locomo-v53-fair test-locomo-v53-fair-resume test-locomo-watch test-locomo-report test-contradiction test-integration test-all
 .PHONY: lint-ci lint-python lint-frontend npm-install-frontend npm-install-mcp npm-audit
 
 test: test-python test-ts test-go test-mcp
@@ -34,6 +34,33 @@ test-benchmarks:
 	$(COMPOSE_TEST) run --rm --no-deps test-benchmarks \
 		--backend all --skip-condensate --output /tmp/bench-locomo.json
 
+test-locomo-audit-delta:
+	$(COMPOSE_TEST) run --rm --no-deps --entrypoint python test-benchmarks \
+		benchmarks/scripts/audit_single_hop_delta.py
+	$(COMPOSE_TEST) run --rm --no-deps --entrypoint python test-benchmarks \
+		benchmarks/scripts/compare_fair_runs.py
+
+test-locomo-slices:
+	$(COMPOSE_TEST) run --rm --no-deps --entrypoint python test-benchmarks \
+		benchmarks/scripts/validate_locomo_slices.py \
+		--report /app/benchmarks/results/locomo10_condensate_v53_fair.json
+
+test-locomo-mini-regression:
+	$(COMPOSE_BENCH) up -d condensate-db condensate-vector condensate-ollama
+	$(COMPOSE_BENCH) up -d --force-recreate --no-deps condensate-core
+	bash benchmarks/scripts/check_benchmark_mode.sh
+	@BENCH_KEY=$$($(COMPOSE_TEST_BENCH) run --rm --no-deps --entrypoint python test-benchmarks benchmarks/scripts/ensure_benchmark_api_key.py); \
+	test -n "$$BENCH_KEY" || { echo "ensure_benchmark_api_key returned empty key" >&2; exit 1; }; \
+	echo "Using benchmark API key $${BENCH_KEY:0:12}..."; \
+	CONDENSATE_SKIP_INGEST=0 CONDENSATE_API_KEY=$$BENCH_KEY $(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
+		--dataset /app/benchmarks/data/locomo_mini.json \
+		--backend condensate \
+		--output /app/benchmarks/results/locomo_mini_current.json
+	$(COMPOSE_TEST) run --rm --no-deps --entrypoint python test-benchmarks \
+		benchmarks/scripts/check_locomo_mini_regression.py \
+		--current /app/benchmarks/results/locomo_mini_current.json \
+		--skip-fair
+
 test-locomo-full:
 	$(COMPOSE_BENCH) up -d condensate-db condensate-vector condensate-ollama condensate-core
 	$(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
@@ -51,6 +78,7 @@ test-locomo-v53-fair:
 	$(COMPOSE_BENCH) up -d --force-recreate --no-deps condensate-core
 	bash benchmarks/scripts/check_benchmark_mode.sh
 	@BENCH_KEY=$$($(COMPOSE_TEST_BENCH) run --rm --no-deps --entrypoint python test-benchmarks benchmarks/scripts/ensure_benchmark_api_key.py); \
+	test -n "$$BENCH_KEY" || { echo "ensure_benchmark_api_key returned empty key" >&2; exit 1; }; \
 	echo "Using benchmark API key $${BENCH_KEY:0:12}..."; \
 	CONDENSATE_SKIP_INGEST=0 CONDENSATE_API_KEY=$$BENCH_KEY $(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
 		--dataset /app/benchmarks/data/locomo10.json \
@@ -63,6 +91,7 @@ test-locomo-v53-fair-resume:
 	$(COMPOSE_BENCH) up -d --force-recreate --no-deps condensate-core
 	bash benchmarks/scripts/check_benchmark_mode.sh
 	@BENCH_KEY=$$($(COMPOSE_TEST_BENCH) run --rm --no-deps --entrypoint python test-benchmarks benchmarks/scripts/ensure_benchmark_api_key.py); \
+	test -n "$$BENCH_KEY" || { echo "ensure_benchmark_api_key returned empty key" >&2; exit 1; }; \
 	echo "Using benchmark API key $${BENCH_KEY:0:12}..."; \
 	CONDENSATE_SKIP_INGEST=0 CONDENSATE_API_KEY=$$BENCH_KEY $(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
 		--dataset /app/benchmarks/data/locomo10.json \

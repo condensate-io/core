@@ -2,7 +2,7 @@ name: LoCoMo mini regression
 
 on:
   schedule:
-    # Mondays 06:00 UTC — informational only (LOC-016)
+    # Mondays 06:00 UTC — blocking regression gate (LOC-027, upgraded from LOC-016)
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
@@ -12,7 +12,6 @@ permissions:
 jobs:
   locomo-mini:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.11
@@ -25,7 +24,8 @@ jobs:
           pip install -r requirements.txt
       - name: LoCoMo harness unit tests (mini fixture)
         run: |
-          pytest benchmarks/tests/test_locomo.py benchmarks/tests/test_condensate_backend.py -q
+          pytest benchmarks/tests/test_locomo.py benchmarks/tests/test_condensate_backend.py \
+            benchmarks/tests/test_locomo_mini_regression.py -q
       - name: Mini benchmark smoke (no condensate stack)
         env:
           LOCOMO_DATA_PATH: benchmarks/data/locomo_mini.json

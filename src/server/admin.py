@@ -40,6 +40,32 @@ logger = logging.getLogger(__name__)
 security = HTTPBasic()
 
 
+def _api_key_candidates(db: Session, prefix: str) -> List[ApiKey]:
+    """Prefer prefix-indexed keys; fall back to legacy rows without prefix."""
+    by_prefix = (
+        db.execute(
+            select(ApiKey).where(
+                ApiKey.prefix == prefix,
+                ApiKey.is_active.is_(True),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if by_prefix:
+        return list(by_prefix)
+    return list(
+        db.execute(
+            select(ApiKey).where(
+                ApiKey.prefix.is_(None),
+                ApiKey.is_active.is_(True),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def get_api_key(
     auth_header: str = Depends(APIKeyHeader(name="Authorization", auto_error=False)),
     x_api_header: str = Depends(APIKeyHeader(name="X-API-Key", auto_error=False)),
@@ -57,16 +83,7 @@ def get_api_key(
         # Fallback check: if it looks like "Basic ...", skip to basic auth logic
         if not key_str.startswith("Basic "):
             prefix = clean_key[:12]
-            records = (
-                db.execute(
-                    select(ApiKey).where(
-                        (ApiKey.prefix == prefix) | (ApiKey.prefix.is_(None)),
-                        ApiKey.is_active,
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            records = _api_key_candidates(db, prefix)
             for r in records:
                 if verify_key(clean_key, r.key):
                     return r

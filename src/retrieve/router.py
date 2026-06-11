@@ -261,16 +261,23 @@ def heuristic_rerank_items(query: str, items: List[str], top_n: int) -> List[str
     names = extract_entity_names(query)
     temporal = is_temporal_query(query)
     adversarial_risk = is_adversarial_risk_query(query)
-    entity_swap = adversarial_risk and is_specific_attribute_query(query)
-    focus_terms = extract_focus_terms(query, names) if entity_swap else []
+    entity_swap_trap = is_entity_swap_trap(query)
+    specific_attribute = is_specific_attribute_query(query)
+    focus_terms = (
+        extract_focus_terms(query, names)
+        if (entity_swap_trap or specific_attribute)
+        else []
+    )
 
     def _score(item: str) -> float:
         norm = item.lower()
         score = float(sum(1 for k in keywords if k in norm))
-        if entity_swap:
+        if specific_attribute or entity_swap_trap:
             score += sum(3.0 for t in focus_terms if t in norm)
         else:
             score += sum(3.0 for n in names if n.lower() in norm)
+        if "[source turn" in norm:
+            score += 5.0
         if "[observation" in norm:
             score += 4.0
         if "session summary" in norm or "session @" in norm:
@@ -278,7 +285,7 @@ def heuristic_rerank_items(query: str, items: List[str], top_n: int) -> List[str
         if temporal and "session @" in norm:
             score += 2.5
         if adversarial_risk and "[observation" in norm:
-            if entity_swap:
+            if entity_swap_trap:
                 score += 3.0 if any(t in norm for t in focus_terms) else 0.5
             else:
                 score += 3.0
@@ -358,6 +365,7 @@ def merge_retrieval_items(
 
 
 OBSERVATION_DIA_ID_RE = re.compile(r"\[observation\s+(D\d+:\d+)\]", re.IGNORECASE)
+SOURCE_TURN_DIA_ID_RE = re.compile(r"\[source turn\s+(D\d+:\d+)\]", re.IGNORECASE)
 
 
 def extract_observation_dia_ids(context_items: List[str]) -> List[str]:
@@ -373,6 +381,66 @@ def extract_observation_dia_ids(context_items: List[str]) -> List[str]:
     return ordered
 
 
+_VERBATIM_DETAIL_MARKERS = (
+    "what do ",
+    "what does ",
+    "what did ",
+    " like",
+    " likes",
+    "favorite",
+    "prioritize",
+    "self-care",
+    "self care",
+    "activities",
+    "enjoy",
+    "which cities",
+    "what books",
+    "what games",
+)
+
+
+def query_suggests_verbatim_detail(query: str) -> bool:
+    """LOC-030: queries that usually need list/multi-token verbatim evidence."""
+    lowered = query.lower()
+    if any(marker in lowered for marker in _VERBATIM_DETAIL_MARKERS):
+        return True
+    return bool(re.search(r"what do .+'s ", lowered))
+
+
+def observation_line_thin_for_query(query: str, line: str) -> bool:
+    """True when an entity-matching observation lacks query keyword coverage."""
+    if "[observation" not in line.lower():
+        return False
+    names = extract_entity_names(query)
+    if not names or not any(n.lower() in line.lower() for n in names):
+        return False
+    keywords = extract_query_keywords(query)
+    if not keywords:
+        return False
+    norm = line.lower()
+    hits = sum(1 for k in keywords if k in norm)
+    return hits < max(1, (len(keywords) + 1) // 2)
+
+
+def should_expand_source_hydration(query: str, context_items: List[str]) -> bool:
+    if not query_suggests_verbatim_detail(query):
+        return False
+    return any(observation_line_thin_for_query(query, item) for item in context_items)
+
+
+def collect_hydration_dia_ids(
+    context_items: List[str],
+    extra_dia_ids: Optional[List[str]] = None,
+) -> List[str]:
+    ordered = extract_observation_dia_ids(context_items)
+    seen = set(ordered)
+    for dia_id in extra_dia_ids or []:
+        if dia_id not in seen:
+            seen.add(dia_id)
+            ordered.append(dia_id)
+    return ordered
+
+
 def source_turn_hydration_enabled(*, benchmark_mode: bool) -> bool:
     raw = os.getenv("RETRIEVE_SOURCE_TURN_HYDRATION", "").strip().lower()
     if raw in ("0", "false", "no"):
@@ -380,6 +448,46 @@ def source_turn_hydration_enabled(*, benchmark_mode: bool) -> bool:
     if raw in ("1", "true", "yes"):
         return True
     return benchmark_mode
+
+
+def merge_hydrated_source_turns(
+    context_items: List[str],
+    sources: List[str],
+    hydrated_items: List[str],
+    hydrated_sources: List[str],
+) -> Tuple[List[str], List[str]]:
+    """Insert each hydrated source turn immediately before its parent observation (LOC-031)."""
+    hydration_by_dia: dict[str, tuple[str, str]] = {}
+    for item, source in zip(hydrated_items, hydrated_sources):
+        match = SOURCE_TURN_DIA_ID_RE.search(item)
+        if match:
+            hydration_by_dia[match.group(1)] = (item, source)
+
+    if not hydration_by_dia:
+        return context_items + hydrated_items, sources + hydrated_sources
+
+    merged_items: List[str] = []
+    merged_sources: List[str] = []
+    inserted: set[str] = set()
+
+    for item, source in zip(context_items, sources):
+        obs_match = OBSERVATION_DIA_ID_RE.search(item)
+        if obs_match:
+            dia_id = obs_match.group(1)
+            if dia_id in hydration_by_dia and dia_id not in inserted:
+                h_item, h_source = hydration_by_dia[dia_id]
+                merged_items.append(h_item)
+                merged_sources.append(h_source)
+                inserted.add(dia_id)
+        merged_items.append(item)
+        merged_sources.append(source)
+
+    for dia_id, (h_item, h_source) in hydration_by_dia.items():
+        if dia_id not in inserted:
+            merged_items.append(h_item)
+            merged_sources.append(h_source)
+
+    return merged_items, merged_sources
 
 
 def format_source_turn_line(text: str, metadata: dict[str, Any]) -> str:
@@ -843,7 +951,7 @@ class MemoryRouter:
         )
         if source_turn_hydration_enabled(benchmark_mode=benchmark_mode):
             context_items, sources = self._hydrate_source_turns(
-                project_id, context_items, sources
+                project_id, context_items, sources, query=query
             )
         if is_adversarial_phrasing(query) and os.getenv(
             "RETRIEVE_ENTITY_ALIGNMENT_FILTER", "1"
@@ -1017,14 +1125,71 @@ class MemoryRouter:
         ]
         return items, [str(a.id) for a in assertions], max(a.confidence for a in assertions)
 
+    def _lookup_entity_turn_dia_ids(
+        self,
+        project_id: Any,
+        query: str,
+        context_items: List[str],
+    ) -> List[str]:
+        """LOC-030: extra dialog dia_ids when thin observations match query entity."""
+        names = extract_entity_names(query)
+        if not names:
+            return []
+        limit = int(os.getenv("RETRIEVE_SOURCE_TURN_EXPAND_MAX", "8"))
+        existing = set(extract_observation_dia_ids(context_items))
+        try:
+            if isinstance(project_id, list):
+                project_filter = EpisodicItem.project_id.in_(project_id)
+            else:
+                project_filter = EpisodicItem.project_id == project_id
+            text_conds = [EpisodicItem.text.ilike(f"%{name}%") for name in names[:2]]
+            stmt = (
+                select(EpisodicItem)
+                .where(
+                    project_filter,
+                    or_(*text_conds),
+                    EpisodicItem.metadata_["dia_id"].isnot(None),
+                    or_(
+                        EpisodicItem.metadata_["kind"].is_(None),
+                        EpisodicItem.metadata_["kind"].as_string().notin_(
+                            ["observation", "session_summary"]
+                        ),
+                    ),
+                )
+                .order_by(EpisodicItem.occurred_at.asc())
+                .limit(limit)
+            )
+            rows = self.db.execute(stmt).scalars().all()
+        except Exception as exc:
+            logger.warning("Expanded hydration dia_id lookup failed: %s", exc)
+            return []
+
+        extra: List[str] = []
+        for row in rows:
+            dia_id = (row.metadata_ or {}).get("dia_id")
+            if not dia_id:
+                continue
+            dia_str = str(dia_id)
+            if dia_str in existing or dia_str in extra:
+                continue
+            extra.append(dia_str)
+        return extra
+
     def _hydrate_source_turns(
         self,
         project_id: Any,
         context_items: List[str],
         sources: List[str],
+        *,
+        query: str = "",
     ) -> Tuple[List[str], List[str]]:
         """Fetch verbatim dialog turns linked from observation dia_id provenance."""
-        dia_ids = extract_observation_dia_ids(context_items)
+        extra_dia_ids: List[str] = []
+        if query and should_expand_source_hydration(query, context_items):
+            extra_dia_ids = self._lookup_entity_turn_dia_ids(
+                project_id, query, context_items
+            )
+        dia_ids = collect_hydration_dia_ids(context_items, extra_dia_ids)
         if not dia_ids:
             return context_items, sources
 
@@ -1074,7 +1239,9 @@ class MemoryRouter:
 
         if not hydrated_items:
             return context_items, sources
-        return context_items + hydrated_items, sources + hydrated_sources
+        return merge_hydrated_source_turns(
+            context_items, sources, hydrated_items, hydrated_sources
+        )
 
     async def _vector_search(
         self,

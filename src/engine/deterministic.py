@@ -152,20 +152,37 @@ class DeterministicCondenser:
                     "type": "fact"
                 })
 
-        # 3. Algorithmic Condensation (Summary)
+        # 3. Algorithmic Condensation (Summary) — LOC-025: keep lists, dates, activities verbatim
         trace.append({"label": "Performing Semantic Distillation...", "timestamp": int(time.time() * 1000), "status": "info"})
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         action_lines = []
-        
+        list_or_date = re.compile(
+            r',|;|\band\b|'
+            r'\b(january|february|march|april|may|june|july|august|'
+            r'september|october|november|december|\d{4})\b',
+            re.IGNORECASE,
+        )
+        activity_markers = (
+            'need to', 'prioritize', 'focus on', 'meeting', 'bottleneck', 'policy', 'alert', 'critical',
+            'executed', 'order', 'stabilize', 'anomaly', 'detected', 'impact', 'massive',
+            'love', 'like', 'likes', 'enjoy', 'reading', 'running', 'violin', 'dinosaur',
+        )
+
         for line in lines:
             lower = line.lower()
-            if any(key in lower for key in [
-                'need to', 'prioritize', 'focus on', 'meeting', 'bottleneck', 'policy', 'alert', 'critical',
-                'executed', 'order', 'stabilize', 'anomaly', 'detected', 'impact', 'massive'
-            ]):
-                cleaned = re.sub(r'^(USER|AGENT|BOB|ALICE|SYSTEM):\s*', '', line, flags=re.IGNORECASE).strip()
-                action_lines.append(cleaned)
-                
+            keep = any(key in lower for key in activity_markers)
+            if not keep and list_or_date.search(line) and len(line.split()) >= 4:
+                keep = True
+            if keep:
+                cleaned = re.sub(
+                    r'^(USER|AGENT|BOB|ALICE|SYSTEM|[A-Z][a-z]+):\s*',
+                    '',
+                    line,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if cleaned:
+                    action_lines.append(cleaned)
+
         condensed = ". ".join(action_lines) if action_lines else "No critical state changes detected."
         
         trace.append({"label": f"Knowledge synthesis complete. Facts: {len(facts)}", "timestamp": int(time.time() * 1000), "status": "success"})

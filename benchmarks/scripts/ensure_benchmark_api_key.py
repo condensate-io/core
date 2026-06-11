@@ -26,17 +26,26 @@ def _base_url() -> str:
 def _wait_for_core(
     client: httpx.Client,
     base_url: str,
-    timeout_s: float = 180.0,
-    interval_s: float = 2.0,
+    timeout_s: float = 300.0,
+    interval_s: float = 3.0,
 ) -> None:
+    """Wait until healthz is OK and admin key minting works (migrations + routes live)."""
     deadline = time.monotonic() + timeout_s
     last_error: str | None = None
     while time.monotonic() < deadline:
         try:
             response = client.get(f"{base_url}/healthz")
-            if response.status_code < 500:
+            if response.status_code != 200:
+                last_error = f"healthz status {response.status_code}"
+                time.sleep(interval_s)
+                continue
+            probe = client.post(
+                f"{base_url}/api/admin/keys",
+                params={"name": "__readiness_probe__", "project_id": BENCH_PROJECT},
+            )
+            if probe.status_code == 200 and probe.json().get("key"):
                 return
-            last_error = f"healthz status {response.status_code}"
+            last_error = f"admin /keys status {probe.status_code}"
         except httpx.HTTPError as exc:
             last_error = str(exc)
         time.sleep(interval_s)
@@ -78,9 +87,11 @@ def ensure_key(base_url: str | None = None) -> str:
         key = str(response.json()["key"]).strip()
         if not key:
             raise RuntimeError("admin /keys returned empty key")
-        if not _probe_key(client, base, key):
-            raise RuntimeError("newly created API key failed retrieve probe (401)")
-        return key
+        for attempt in range(12):
+            if _probe_key(client, base, key):
+                return key
+            time.sleep(2.0)
+        raise RuntimeError("newly created API key failed retrieve probe (401)")
 
 
 def main() -> int:

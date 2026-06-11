@@ -8,6 +8,7 @@ single-hop questions.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import List, Tuple
 
@@ -457,6 +458,25 @@ def filter_swap_trap_context(
     if not is_entity_swap_trap(query):
         return items, sources
 
+    min_tokens = int(os.getenv("RETRIEVE_SWAP_TRAP_MIN_TOKENS", "0"))
+
+    def _estimate_tokens(lines: List[str]) -> int:
+        return sum(len(line.split()) for line in lines)
+
+    def _structured_evidence_count(lines: List[str]) -> int:
+        count = 0
+        for line in lines:
+            lowered = line.lower()
+            if (
+                "[observation" in lowered
+                or "assertion:" in lowered
+                or "[source turn" in lowered
+            ):
+                count += 1
+        return count
+
+    pre_structured = _structured_evidence_count(items)
+
     kept_items: List[str] = []
     kept_sources: List[str] = []
     for item, source in zip(items, sources):
@@ -466,18 +486,29 @@ def filter_swap_trap_context(
             kept_sources.append(source)
 
     if kept_items:
-        return kept_items, kept_sources
+        result_items, result_sources = kept_items, kept_sources
+    else:
+        entities = _extract_entity_names(query)
+        result_items = []
+        result_sources = []
+        for item, source in zip(items, sources):
+            norm = _normalize_chunk_text(item)
+            if entities and any(e.lower() in norm for e in entities):
+                if not line_asserts_query_focus(
+                    item, extract_focus_terms(query, entities)
+                ):
+                    result_items.append(item)
+                    result_sources.append(source)
+        if not result_items:
+            return items, sources
 
-    entities = _extract_entity_names(query)
-    for item, source in zip(items, sources):
-        norm = _normalize_chunk_text(item)
-        if entities and any(e.lower() in norm for e in entities):
-            if not line_asserts_query_focus(
-                item, extract_focus_terms(query, entities)
-            ):
-                kept_items.append(item)
-                kept_sources.append(source)
-    return kept_items, kept_sources
+    post_structured = _structured_evidence_count(result_items)
+    if pre_structured > 0 and post_structured == 0:
+        return items, sources
+    if min_tokens > 0 and _estimate_tokens(result_items) < min_tokens:
+        return items, sources
+
+    return result_items, result_sources
 
 
 def supplementary_vector_queries_adversarial(

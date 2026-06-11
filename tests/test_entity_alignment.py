@@ -147,6 +147,25 @@ def test_swap_trap_filter_keeps_disambiguation_without_trap():
     assert not any(" yes " in f" {line.lower()} " for line in filtered)
 
 
+def test_swap_trap_filter_safety_valve_restores_context_when_all_evidence_removed():
+    query = "What does Melanie's necklace symbolize?"
+    items = [
+        "[observation D4:3] Caroline received a special necklace symbolizing love, faith, and strength.",
+    ]
+    filtered, _ = filter_swap_trap_context(query, items, ["a"])
+    assert filtered == items
+
+
+def test_swap_trap_filter_safety_valve_honors_min_tokens_env(monkeypatch):
+    monkeypatch.setenv("RETRIEVE_SWAP_TRAP_MIN_TOKENS", "500")
+    query = "What does Melanie's necklace symbolize?"
+    items = [
+        "[observation D5:10] Pottery helps Melanie express emotions.",
+    ]
+    filtered, _ = filter_swap_trap_context(query, items, ["a"])
+    assert filtered == items
+
+
 def test_swap_trap_supplementary_query_includes_attribute_only():
     query = "What does Melanie's necklace symbolize?"
     extras = supplementary_vector_queries_adversarial(

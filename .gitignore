@@ -98,6 +98,7 @@ target/
 .cache/
 *.egg-info/
 .env.*
+*__pycache__*
 project_website/
 docs/omnisim.md
 tests/test_omnisim_scenarios.py

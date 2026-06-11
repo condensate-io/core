@@ -45,9 +45,11 @@ def test_run_job_success(mock_db):
         mock_conn.fetch.return_value = [
             ("http://example.com", b"Hello World", {"status": 200})
         ]
-        
-        run = service.run_job(job.id)
-        
+
+        with patch("src.ingest.service.threading.Thread") as mock_thread:
+            run = service.run_job(job.id)
+            mock_thread.return_value.start.assert_called_once()
+
         assert run.status == "completed"
         # 1 run + 1 artifact added
         assert mock_db.add.call_count >= 2 

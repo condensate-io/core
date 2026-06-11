@@ -108,6 +108,27 @@ def test_heuristic_rerank_items_prefers_observations():
     assert any("observation" in line.lower() for line in ranked)
 
 
+def test_heuristic_rerank_prefers_source_turn_over_observation():
+    items = [
+        "[observation D6:6] Melanie enjoys time with her kids.",
+        "[source turn D6:6] Melanie: The kids love dinosaurs and nature.",
+        "Caroline: Hey Mel!",
+    ]
+    ranked = heuristic_rerank_items("What do Melanie's kids like?", items, top_n=2)
+    assert ranked[0].startswith("[source turn D6:6]")
+
+
+def test_heuristic_rerank_open_domain_not_demoted_like_swap_trap():
+    items = [
+        "[observation D2:4] Gina is currently reading The Lean Startup.",
+        "[observation D2:5] Gina enjoys entrepreneurship books.",
+    ]
+    query = "What book is Gina currently reading?"
+    ranked = heuristic_rerank_items(query, items, top_n=2)
+    assert len(ranked) == 2
+    assert "lean startup" in ranked[0].lower()
+
+
 def test_heuristic_rerank_swap_trap_prefers_focus_over_wrong_entity():
     items = [
         "[observation D5:10] Pottery is a significant part of Melanie's life.",
