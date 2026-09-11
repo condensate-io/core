@@ -1,7 +1,10 @@
 from unittest.mock import MagicMock
 
 from src.retrieve.router import (
+    count_distinct_context_dia_ids,
+    decompose_counterfactual_subqueries,
     episodic_score_adjustment,
+    extract_context_dia_ids,
     extract_query_keywords,
     extract_entity_names,
     filter_adversarial_context,
@@ -14,6 +17,8 @@ from src.retrieve.router import (
     is_structured_context_line,
     is_temporal_query,
     merge_retrieval_items,
+    multihop_evidence_topup_enabled,
+    multihop_graph_enabled,
     normalize_chunk_text,
     qdrant_vector_search,
     supplementary_vector_queries,
@@ -57,6 +62,34 @@ def test_supplementary_vector_queries_multihop():
     assert any("caroline" in e.lower() for e in extras)
 
 
+def test_decompose_counterfactual_subqueries():
+    query = (
+        "Would Caroline still want to pursue counseling as a career "
+        "if she hadn't received support growing up?"
+    )
+    keywords = extract_query_keywords(query)
+    subs = decompose_counterfactual_subqueries(query, keywords)
+    assert subs
+    assert any("caroline" in s.lower() for s in subs)
+    assert any("support" in s.lower() or "counseling" in s.lower() for s in subs)
+
+
+def test_extract_context_dia_ids_counts_observation_and_source_turn():
+    items = [
+        "[observation D4:15] Caroline values support.",
+        "[source turn D3:5] Caroline: Support changed my path.",
+        "Melanie: hello",
+    ]
+    assert extract_context_dia_ids(items) == ["D4:15", "D3:5"]
+    assert count_distinct_context_dia_ids(items) == 2
+
+
+def test_multihop_feature_flags_default_on():
+    assert multihop_graph_enabled() is True
+    assert multihop_evidence_topup_enabled(benchmark_mode=True) is True
+    assert multihop_evidence_topup_enabled(benchmark_mode=False) is False
+
+
 def test_extract_entity_names():
     assert extract_entity_names("When did Caroline meet Melanie?") == ["Caroline", "Melanie"]
 
@@ -75,6 +108,14 @@ def test_supplementary_queries_health_and_state_multihop():
     state_q = "Which US state did Jolene visit during her internship?"
     state_extras = supplementary_vector_queries(state_q, extract_query_keywords(state_q))
     assert any("visit" in e.lower() or "state" in e.lower() for e in state_extras)
+
+    career_q = "What alternative career might Nate consider after gaming?"
+    career_extras = supplementary_vector_queries(career_q, extract_query_keywords(career_q))
+    assert any("career" in e.lower() for e in career_extras)
+
+    age_q = "How old is Jolene?"
+    age_extras = supplementary_vector_queries(age_q, extract_query_keywords(age_q))
+    assert any("age" in e.lower() or "birthday" in e.lower() for e in age_extras)
     assert is_boilerplate_episodic("Melanie: Thanks, Caroline. They're a real support.")
     assert not is_boilerplate_episodic(
         "Caroline: I'm keen on counseling or working in mental health."
@@ -173,6 +214,19 @@ def test_filter_adversarial_context_aggressive_drops_raw_dialog():
     # Aggressive mode drops raw dialog entirely so trap answers cannot leak.
     assert all(item.startswith("[observation") for item in filtered_items)
     assert len(filtered_items) == 1
+
+
+def test_filter_adversarial_context_aggressive_redacts_raw_when_no_structured():
+    """LOC-018e: prefer redacted entity dialog over empty context."""
+    items = [
+        "Melanie: We might adopt this summer with respect to our plans!",
+        "Caroline: That sounds wonderful!",
+    ]
+    sources = ["a", "b"]
+    filtered_items, _ = filter_adversarial_context(items, sources, aggressive=True)
+    assert filtered_items
+    joined = " ".join(filtered_items).lower()
+    assert "melanie" in joined or "caroline" in joined
 
 
 def test_filter_adversarial_context_aggressive_caps_safe_lines():

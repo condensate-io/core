@@ -153,7 +153,9 @@ def test_swap_trap_filter_safety_valve_restores_context_when_all_evidence_remove
         "[observation D4:3] Caroline received a special necklace symbolizing love, faith, and strength.",
     ]
     filtered, _ = filter_swap_trap_context(query, items, ["a"])
-    assert filtered == items
+    assert filtered
+    assert "symboliz" not in filtered[0].lower()
+    assert "necklace" in filtered[0].lower()
 
 
 def test_swap_trap_filter_safety_valve_honors_min_tokens_env(monkeypatch):
@@ -164,6 +166,17 @@ def test_swap_trap_filter_safety_valve_honors_min_tokens_env(monkeypatch):
     ]
     filtered, _ = filter_swap_trap_context(query, items, ["a"])
     assert filtered == items
+
+
+def test_swap_trap_filter_prefers_redacted_line_over_empty():
+    """LOC-018e: redact trap clause instead of returning empty context."""
+    query = "What does Melanie's necklace symbolize?"
+    items = [
+        "Melanie's necklace symbolizes love, faith, and strength from grandma.",
+    ]
+    filtered, _ = filter_swap_trap_context(query, items, ["a"])
+    assert filtered
+    assert "symboliz" not in filtered[0].lower()
 
 
 def test_swap_trap_supplementary_query_includes_attribute_only():

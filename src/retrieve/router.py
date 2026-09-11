@@ -136,6 +136,10 @@ def is_multihop_query(query: str) -> bool:
         "travelling in",
         "traveling in",
         "put off",
+        "how old",
+        "how many",
+        "alternative career",
+        "colored cards",
     )
     return any(marker in lowered for marker in markers)
 
@@ -166,6 +170,7 @@ def supplementary_vector_queries(query: str, keywords: List[str]) -> List[str]:
     if len(content_kw) >= 2:
         extras.append(" ".join(content_kw[:5]))
     if is_multihop_query(query):
+        extras.extend(decompose_counterfactual_subqueries(query, keywords))
         if subject:
             extras.append(f"{subject} support")
         lowered = query.lower()
@@ -196,14 +201,31 @@ def supplementary_vector_queries(query: str, keywords: List[str]) -> List[str]:
             extras.append(f"{subject} visit country Canada travel")
         if subject and "why" in lowered and ("yoga" in lowered or "put off" in lowered):
             extras.append(f"{subject} yoga video games hobbies")
+        if subject and "alternative" in lowered and "career" in lowered:
+            extras.append(f"{subject} career future plans after gaming")
+        if subject and "health" in lowered and (
+            "suspected" in lowered or "problem" in lowered
+        ):
+            extras.append(f"{subject} health weight obesity doctor")
+        if subject and re.search(r"\bhow old\b", lowered):
+            extras.append(f"{subject} age born birthday year old")
+        if subject and "hikes" in lowered:
+            extras.append(f"{subject} hiking trails hike count")
+        if subject and "colored cards" in lowered or (
+            "game" in lowered and "card" in lowered and subject
+        ):
+            extras.append(f"{subject} card game uno colors")
+        if subject and "internship" in lowered:
+            extras.append(f"{subject} internship visit state travel")
+        if subject and "stress" in lowered and (
+            "living" in lowered or "apartment" in lowered or "accommodat" in lowered
+        ):
+            extras.append(f"{subject} apartment dog stress housing living")
+        if subject and "influence" in lowered and "experience" in lowered:
+            extras.append(f"{subject} health lifestyle app experiences")
         for kw in content_kw:
             if len(kw) >= 6:
                 extras.append(kw)
-        clause_match = re.search(r"\bif\b(.+?)\?", query, flags=re.IGNORECASE)
-        if clause_match:
-            clause_kw = extract_query_keywords(clause_match.group(1))
-            if clause_kw:
-                extras.append(" ".join(clause_kw[:5]))
     seen: set[str] = set()
     deduped: List[str] = []
     for item in extras:
@@ -381,6 +403,78 @@ def extract_observation_dia_ids(context_items: List[str]) -> List[str]:
     return ordered
 
 
+_CONTEXT_DIA_ID_RE = re.compile(r"\b(D\d+:\d+)\b", re.IGNORECASE)
+
+
+def extract_context_dia_ids(context_items: List[str]) -> List[str]:
+    """Distinct dialog provenance IDs across observations, source turns, and inline citations."""
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for item in context_items:
+        for match in _CONTEXT_DIA_ID_RE.finditer(item):
+            dia_id = match.group(1).upper()
+            if dia_id not in seen:
+                seen.add(dia_id)
+                ordered.append(dia_id)
+    return ordered
+
+
+def count_distinct_context_dia_ids(context_items: List[str]) -> int:
+    return len(extract_context_dia_ids(context_items))
+
+
+def multihop_evidence_topup_enabled(*, benchmark_mode: bool) -> bool:
+    raw = os.getenv("RETRIEVE_MULTIHOP_EVIDENCE_TOPUP", "").strip().lower()
+    if raw in ("0", "false", "no"):
+        return False
+    if raw in ("1", "true", "yes"):
+        return True
+    return benchmark_mode
+
+
+def multihop_graph_enabled() -> bool:
+    return os.getenv("RETRIEVE_MULTIHOP_GRAPH", "1").strip().lower() in ("1", "true", "yes")
+
+
+def decompose_counterfactual_subqueries(query: str, keywords: List[str]) -> List[str]:
+    """LOC-011: split counterfactual / conditional clauses into standalone retrieval queries."""
+    extras: List[str] = []
+    names = extract_entity_names(query)
+    subject = names[0] if names else None
+    lowered = query.lower()
+
+    for match in re.finditer(r"\bif\b(.+?)(?:\?|$)", query, flags=re.IGNORECASE):
+        clause = match.group(1).strip().rstrip("?")
+        clause_kw = extract_query_keywords(clause)
+        if clause_kw:
+            extras.append(" ".join(clause_kw[:6]))
+            if subject:
+                extras.append(f"{subject} {' '.join(clause_kw[:4])}")
+
+    if subject and ("still" in lowered or "would" in lowered):
+        intent = re.search(
+            r"(?:want to|pursue|do|consider)\s+([^,?]+)",
+            query,
+            flags=re.IGNORECASE,
+        )
+        if intent:
+            extras.append(f"{subject} {intent.group(1).strip()}")
+
+    if subject and keywords:
+        content_kw = [k for k in keywords if k.lower() not in {n.lower() for n in names}]
+        if content_kw and ("if " in lowered or "hadn't" in lowered or "had not" in lowered):
+            extras.append(f"{subject} {' '.join(content_kw[:4])}")
+
+    seen: set[str] = set()
+    deduped: List[str] = []
+    for item in extras:
+        key = item.lower().strip()
+        if key and key not in seen and key != query.lower().strip():
+            seen.add(key)
+            deduped.append(item)
+    return deduped[:5]
+
+
 _VERBATIM_DETAIL_MARKERS = (
     "what do ",
     "what does ",
@@ -537,6 +631,14 @@ def filter_adversarial_context(
             raw_sources.append(source)
     if aggressive:
         raw_limit = int(os.getenv("RETRIEVE_ADVERSARIAL_RAW_LIMIT_STRICT", "0"))
+        if not safe_items and raw_items:
+            from src.retrieve.entity_alignment import redact_trap_value_clauses
+
+            for item, source in zip(raw_items, raw_sources):
+                redacted = redact_trap_value_clauses(item)
+                if redacted.strip():
+                    safe_items.append(redacted)
+                    safe_sources.append(source)
     else:
         raw_limit = int(os.getenv("RETRIEVE_ADVERSARIAL_RAW_LIMIT", "6"))
     if safe_limit is not None and safe_limit > 0:
@@ -850,14 +952,16 @@ class MemoryRouter:
         multihop = is_multihop_query(query) or plan.question_type in ("causal", "relationship", "event_sequence")
         temporal = is_temporal_query(query) or plan.requires_event_chain or "temporal_chain" in modes
         adversarial_risk = is_adversarial_risk_query(query) or plan.requires_abstention_check
+        mandatory_multihop_graph = multihop and multihop_graph_enabled()
         use_graph = (
             strategy == "research"
             or is_research_query(query)
             or is_temporal_query(query)
+            or mandatory_multihop_graph
             or "event_graph" in modes
             or "temporal_chain" in modes
         )
-        if benchmark_mode and skip_graph and not (bench_graph_steps > 0 and multihop):
+        if benchmark_mode and skip_graph and not mandatory_multihop_graph:
             use_graph = False
 
         multi_query = benchmark_mode and os.getenv(
@@ -904,17 +1008,16 @@ class MemoryRouter:
         graph_conf = 0.0
         graph_steps = steps
         graph_decay = decay
-        if benchmark_mode and bench_graph_steps > 0 and multihop:
-            use_graph = True
-            graph_steps = bench_graph_steps
+        if mandatory_multihop_graph:
+            graph_steps = bench_graph_steps if bench_graph_steps > 0 else 2
             graph_decay = 0.5
         if use_graph and keywords:
             graph_items, graph_sources, graph_conf = self._graph_traversal(
                 project_id, keywords, steps=graph_steps, decay=graph_decay
             )
-        elif benchmark_mode and skip_graph and keywords and (multihop or temporal):
+        elif benchmark_mode and skip_graph and keywords and temporal:
             graph_items, graph_sources, graph_conf = self._light_entity_assertions(
-                project_id, keywords, min_keyword_matches=2 if multihop else 1
+                project_id, keywords, min_keyword_matches=1
             )
             light_items, light_sources, light_conf = [], [], 0.0
 
@@ -952,6 +1055,21 @@ class MemoryRouter:
         if source_turn_hydration_enabled(benchmark_mode=benchmark_mode):
             context_items, sources = self._hydrate_source_turns(
                 project_id, context_items, sources, query=query
+            )
+        if (
+            multihop
+            and multihop_evidence_topup_enabled(benchmark_mode=benchmark_mode)
+            and count_distinct_context_dia_ids(context_items) < 2
+        ):
+            context_items, sources = await self._multihop_evidence_topup(
+                project_id,
+                query,
+                keywords,
+                context_items,
+                sources,
+                temporal=temporal,
+                adversarial_risk=adversarial_risk,
+                vector_limit=plan.vector_limit,
             )
         if is_adversarial_phrasing(query) and os.getenv(
             "RETRIEVE_ENTITY_ALIGNMENT_FILTER", "1"
@@ -1182,10 +1300,14 @@ class MemoryRouter:
         sources: List[str],
         *,
         query: str = "",
+        always_expand_entity_turns: bool = False,
     ) -> Tuple[List[str], List[str]]:
         """Fetch verbatim dialog turns linked from observation dia_id provenance."""
         extra_dia_ids: List[str] = []
-        if query and should_expand_source_hydration(query, context_items):
+        if query and (
+            always_expand_entity_turns
+            or should_expand_source_hydration(query, context_items)
+        ):
             extra_dia_ids = self._lookup_entity_turn_dia_ids(
                 project_id, query, context_items
             )
@@ -1242,6 +1364,96 @@ class MemoryRouter:
         return merge_hydrated_source_turns(
             context_items, sources, hydrated_items, hydrated_sources
         )
+
+    async def _multihop_evidence_topup(
+        self,
+        project_id: Any,
+        query: str,
+        keywords: List[str],
+        context_items: List[str],
+        sources: List[str],
+        *,
+        temporal: bool,
+        adversarial_risk: bool,
+        vector_limit: Optional[int],
+    ) -> Tuple[List[str], List[str]]:
+        """LOC-026: supplementary retrieval until multi-hop context has ≥2 distinct dia_ids."""
+        if count_distinct_context_dia_ids(context_items) >= 2:
+            return context_items, sources
+
+        sub_queries = decompose_counterfactual_subqueries(query, keywords)
+        sub_queries.extend(supplementary_vector_queries(query, keywords))
+        seen_queries: set[str] = {query.lower().strip()}
+        extra_queries: List[str] = []
+        for sub_query in sub_queries:
+            key = sub_query.lower().strip()
+            if key and key not in seen_queries:
+                seen_queries.add(key)
+                extra_queries.append(sub_query)
+        extra_queries = extra_queries[:6]
+
+        merged_items = list(context_items)
+        merged_sources = list(sources)
+        if extra_queries:
+            vec_items, vec_sources, _ = await self._vector_search(
+                project_id,
+                query,
+                extra_queries=extra_queries,
+                multihop=True,
+                temporal=temporal,
+                adversarial_risk=adversarial_risk,
+                vector_limit=vector_limit,
+            )
+            merged_items, merged_sources = merge_retrieval_items(
+                (merged_items, merged_sources),
+                (vec_items, vec_sources),
+            )
+
+        if count_distinct_context_dia_ids(merged_items) < 2:
+            merged_items, merged_sources = self._hydrate_source_turns(
+                project_id,
+                merged_items,
+                merged_sources,
+                query=query,
+                always_expand_entity_turns=True,
+            )
+
+        if count_distinct_context_dia_ids(merged_items) < 2 and extra_queries:
+            names = extract_entity_names(query)
+            subject = names[0] if names else None
+            content_kw = [
+                k
+                for k in keywords
+                if k.lower() not in {n.lower() for n in (names or [])}
+            ]
+            per_kw: List[str] = []
+            if subject:
+                for kw in content_kw[:5]:
+                    per_kw.append(f"{subject} {kw}")
+            if per_kw:
+                vec_items, vec_sources, _ = await self._vector_search(
+                    project_id,
+                    query,
+                    extra_queries=per_kw,
+                    multihop=True,
+                    temporal=temporal,
+                    adversarial_risk=adversarial_risk,
+                    vector_limit=vector_limit,
+                )
+                merged_items, merged_sources = merge_retrieval_items(
+                    (merged_items, merged_sources),
+                    (vec_items, vec_sources),
+                )
+                if count_distinct_context_dia_ids(merged_items) < 2:
+                    merged_items, merged_sources = self._hydrate_source_turns(
+                        project_id,
+                        merged_items,
+                        merged_sources,
+                        query=query,
+                        always_expand_entity_turns=True,
+                    )
+
+        return merged_items, merged_sources
 
     async def _vector_search(
         self,

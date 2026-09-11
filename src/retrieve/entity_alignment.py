@@ -500,6 +500,12 @@ def filter_swap_trap_context(
                     result_items.append(item)
                     result_sources.append(source)
         if not result_items:
+            for item, source in zip(items, sources):
+                redacted = redact_trap_value_clauses(item)
+                if redacted.strip():
+                    result_items.append(redacted)
+                    result_sources.append(source)
+        if not result_items:
             return items, sources
 
     post_structured = _structured_evidence_count(result_items)

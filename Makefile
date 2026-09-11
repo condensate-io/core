@@ -13,7 +13,7 @@ COMPOSE_TEST_BENCH := $(COMPOSE_BENCH) -f docker-compose.test.yml --profile test
 
 PYTEST_UNIT := tests/ --ignore=tests/test_schema_integrity.py --ignore=tests/test_omnisim_scenarios.py -m "not integration"
 
-.PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-locomo-mini-regression test-locomo-audit-delta test-locomo-slices test-locomo-full test-locomo-v53-fair test-locomo-v53-fair-resume test-locomo-watch test-locomo-report test-contradiction test-integration test-all
+.PHONY: test test-python test-ts test-go test-mcp test-benchmarks test-locomo-mini-regression test-locomo-swap-trap-ablation test-locomo-audit-delta test-locomo-slices test-locomo-full test-locomo-v53-fair test-locomo-v53-fair-resume test-locomo-watch test-locomo-report test-contradiction test-integration test-all
 .PHONY: lint-ci lint-python lint-frontend npm-install-frontend npm-install-mcp npm-audit
 
 test: test-python test-ts test-go test-mcp
@@ -60,6 +60,32 @@ test-locomo-mini-regression:
 		benchmarks/scripts/check_locomo_mini_regression.py \
 		--current /app/benchmarks/results/locomo_mini_current.json \
 		--skip-fair
+
+# LOC-028d: run locomo_mini with swap-trap filter on vs off and print non-adversarial recovery.
+test-locomo-swap-trap-ablation:
+	$(COMPOSE_BENCH) up -d condensate-db condensate-vector condensate-ollama
+	RETRIEVE_SWAP_TRAP_FILTER=1 $(COMPOSE_BENCH) up -d --force-recreate --no-deps condensate-core
+	bash benchmarks/scripts/check_benchmark_mode.sh
+	@BENCH_KEY=$$($(COMPOSE_TEST_BENCH) run --rm --no-deps --entrypoint python test-benchmarks benchmarks/scripts/ensure_benchmark_api_key.py); \
+	test -n "$$BENCH_KEY" || { echo "ensure_benchmark_api_key returned empty key" >&2; exit 1; }; \
+	echo "Using benchmark API key $${BENCH_KEY:0:12}..."; \
+	CONDENSATE_SKIP_INGEST=0 CONDENSATE_API_KEY=$$BENCH_KEY $(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
+		--dataset /app/benchmarks/data/locomo_mini.json \
+		--backend condensate \
+		--output /app/benchmarks/results/locomo_mini_swap_trap_on.json
+	RETRIEVE_SWAP_TRAP_FILTER=0 $(COMPOSE_BENCH) up -d --force-recreate --no-deps condensate-core
+	bash benchmarks/scripts/check_benchmark_mode.sh
+	@BENCH_KEY=$$($(COMPOSE_TEST_BENCH) run --rm --no-deps --entrypoint python test-benchmarks benchmarks/scripts/ensure_benchmark_api_key.py); \
+	test -n "$$BENCH_KEY" || { echo "ensure_benchmark_api_key returned empty key" >&2; exit 1; }; \
+	CONDENSATE_SKIP_INGEST=0 CONDENSATE_API_KEY=$$BENCH_KEY $(COMPOSE_TEST_BENCH) run --rm test-benchmarks \
+		--dataset /app/benchmarks/data/locomo_mini.json \
+		--backend condensate \
+		--output /app/benchmarks/results/locomo_mini_swap_trap_off.json
+	$(COMPOSE_TEST) run --rm --no-deps --entrypoint python test-benchmarks \
+		benchmarks/scripts/ablation_swap_trap_filter.py \
+		--filter-on /app/benchmarks/results/locomo_mini_swap_trap_on.json \
+		--filter-off /app/benchmarks/results/locomo_mini_swap_trap_off.json \
+		--slices conv-26
 
 test-locomo-full:
 	$(COMPOSE_BENCH) up -d condensate-db condensate-vector condensate-ollama condensate-core

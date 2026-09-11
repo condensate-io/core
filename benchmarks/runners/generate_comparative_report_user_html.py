@@ -69,6 +69,18 @@ def render_html(m: dict[str, Any]) -> str:
     token_pct = min(100, ((m["cond_tokens"] or 0) / 7000) * 100)
     open_beat = (m["opendomain"] or 0) > (m["target_opendomain"] or 0)
     temp_beat = (m["temporal"] or 0) > (m["target_temporal"] or 0)
+    goal_delta = cond_pct - goal_pct
+    if goal_delta >= 0:
+        goal_status = f"{cond_pct:.1f}% vs 85% goal (+{goal_delta:.1f} pts above). Full transcript: {_pct(m['full_retrieval'])}."
+    else:
+        goal_status = f"{cond_pct:.1f}% vs 85% goal ({abs(goal_delta):.1f} pts to go). Full transcript: {_pct(m['full_retrieval'])}."
+    if cond_pct >= goal_pct:
+        overall_gap = f"Overall retrieval meets the 85% production goal ({cond_pct:.1f}%). Remaining gaps: multi-hop ({_pct(m['multihop'])}), adversarial ({_pct(m['adversarial'])})."
+    else:
+        overall_gap = f"Gaps: multi-hop ({_pct(m['multihop'])}), adversarial ({_pct(m['adversarial'])}), overall +{goal_pct - cond_pct:.1f} pts to 85% goal."
+    cost_ratio = (m["full_tokens"] or 1) / max(m["cond_tokens"] or 1, 1)
+    cost_label = f"~{int(round(cost_ratio))}×"
+    accuracy_fill = "good" if cond_pct >= goal_pct else "warn"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -139,8 +151,8 @@ th {{ background: #f0f3f6; }}
         <div>
           <div class="score-big">{_pct(m["cond_retrieval"])}</div>
           <div class="score-label">Condensate — right answer present in memory</div>
-          <div class="progress-bar"><div class="progress-fill warn" style="width:{progress_width:.1f}%"></div></div>
-          <p style="font-size:0.9rem;color:var(--muted);">{cond_pct:.1f}% vs 85% goal ({goal_pct - cond_pct:.1f} pts to go). Full transcript: {_pct(m["full_retrieval"])}.</p>
+          <div class="progress-bar"><div class="progress-fill {accuracy_fill}" style="width:{progress_width:.1f}%"></div></div>
+          <p style="font-size:0.9rem;color:var(--muted);">{goal_status}</p>
         </div>
         <div>
           <div class="score-big">{_int(m["cond_tokens"])}</div>
@@ -166,7 +178,7 @@ th {{ background: #f0f3f6; }}
       <h2>Strengths and gaps</h2>
       <div class="strength-box">
         <ul>
-          <li><strong>Cost:</strong> ~12× fewer tokens than full transcript at similar recall.</li>
+          <li><strong>Cost:</strong> {cost_label} fewer tokens than full transcript at similar recall.</li>
           <li><strong>Open-domain:</strong> {_pct(m["opendomain"])} vs industry {_pct(m["target_opendomain"])}{" ✓" if open_beat else ""}.</li>
           <li><strong>Temporal:</strong> {_pct(m["temporal"])} vs industry {_pct(m["target_temporal"])}{" ✓" if temp_beat else ""}.</li>
           <li><strong>Memory updates:</strong> supersession + provenance (see ContradictionBench).</li>
@@ -182,7 +194,7 @@ th {{ background: #f0f3f6; }}
           <tr><td>Adversarial</td><td>—</td><td>{_pct(m["adversarial"])}</td><td>{_pct(m["full_adversarial"])}</td></tr>
         </tbody>
       </table>
-      <p>Gaps: multi-hop ({_pct(m["multihop"])}), adversarial ({_pct(m["adversarial"])}), overall +{max(0, goal_pct - cond_pct):.1f} pts to 85% goal.</p>
+      <p>{overall_gap}</p>
     </section>
 
     <section class="card">
