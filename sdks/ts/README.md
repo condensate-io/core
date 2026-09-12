@@ -3,7 +3,7 @@
 Official TypeScript / Node.js client for [Condensate](https://condensate.io) — the open-source Agent Memory System.
 
 [![npm](https://img.shields.io/npm/v/@condensate/sdk)](https://www.npmjs.com/package/@condensate/sdk)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
+[![License](https://img.shields.io/badge/license-BSL%201.1-red)](../../LICENSE)
 
 ## Installation
 

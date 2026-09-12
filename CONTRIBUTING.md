@@ -19,13 +19,13 @@ Pull requests are the best way to propose changes to the codebase (we use [Githu
 5. Make sure your code lints.
 6. Issue that pull request!
 
-## Any contributions you make will be under the Apache 2.0 Software License
+## Any contributions you make will be under the Business Source License 1.1 (BSL 1.1)
 
-In short, when you submit code changes, your submissions are understood to be under the same [Apache 2.0 License](http://choosealicense.com/licenses/apache-2.0/) that covers the project. Feel free to contact the maintainers if that's a concern.
+In short, when you submit code changes, your submissions are understood to be under the same [BSL 1.1 License](LICENSE) that covers the project. By contributing, you agree that your contributions will be licensed under BSL 1.1 with commercial licensing reserved by Condensate Systems Pty Ltd. Feel free to contact `support@condensate.io` if that's a concern.
 
 ## Report bugs using Github's [issue tracker](https://github.com/condensate-io/core/issues)
 
-We use GitHub issues to track public bugs. Report a bug by [opening a new issue](); it's that easy!
+We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/condensate-io/core/issues); it's that easy!
 
 ## Write bug reports with detail, background, and sample code
 
@@ -39,6 +39,6 @@ We use GitHub issues to track public bugs. Report a bug by [opening a new issue]
 - What actually happened
 - Notes (possibly including why you think this might be happening, or stuff you tried that didn't work)
 
-## License
+## License & Attribution
 
-By contributing, you agree that your contributions will be licensed under its Apache 2.0 License.
+By contributing, you agree that your contributions will be licensed under the project's [BSL 1.1 License](LICENSE) subject to the Mandatory Attribution Condition.

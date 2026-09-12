@@ -127,7 +127,7 @@ Condensate works with any OpenAI-compatible LLM provider and any MCP-compatible 
 | 💻 **GitHub** | [https://github.com/condensate-io/core](https://github.com/condensate-io/core) |
 | 💼 **LinkedIn** | [https://www.linkedin.com/company/condensate-io/](https://www.linkedin.com/company/condensate-io/) |
 | 📍 **Location** | Melbourne, Victoria, Australia |
-| 📄 **License** | Apache 2.0 |
+| 📄 **License** | BSL 1.1 (Non-commercial) / Commercial on request |
 
 ---
 

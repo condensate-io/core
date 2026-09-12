@@ -3,7 +3,7 @@
 Official Python client for [Condensate](https://condensate.io) — the open-source Agent Memory System.
 
 [![PyPI](https://img.shields.io/pypi/v/condensate)](https://pypi.org/project/condensate/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
+[![License](https://img.shields.io/badge/license-BSL%201.1-red)](../../LICENSE)
 
 ## Installation
 

@@ -3,7 +3,7 @@
 Expose your [Condensate](https://condensate.io) memory server as a **Model Context Protocol (MCP)** server. Lets Claude, Cursor, Windsurf, and any MCP-compatible agent use Condensate as persistent memory — with a single `npx` command.
 
 [![npm](https://img.shields.io/npm/v/@condensate/core)](https://www.npmjs.com/package/@condensate/core)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
+[![License](https://img.shields.io/badge/license-BSL%201.1-red)](../../LICENSE)
 
 ## Quick Start (Claude Desktop)
 

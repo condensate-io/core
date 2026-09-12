@@ -82,7 +82,7 @@ Each vendor provides its own memory API (Assistants threads, Claude memory, etc.
 
 Condensate is a **vendor-independent memory substrate**:
 
-- **Open Protocol:** Apache 2.0 licensed, self-hosted, runs in your VPC.
+- **Source-Available:** BSL 1.1 licensed, self-hosted, runs in your VPC. Commercial licensing available.
 - **Universal SDKs:** Python, TypeScript, Rust, Go, and MCP Bridge — any agent framework can connect. See [[SDKs and Integration]].
 - **Data Portability:** Full JSONL export of memory and graph state via `/export/jsonl`. Your distilled knowledge graphs become high-quality datasets for model fine-tuning.
 - **LLM Agnostic:** Works with any OpenAI-compatible provider — swap between OpenAI, Anthropic, Ollama, or any other model without touching your memory layer.

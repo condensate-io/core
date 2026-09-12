@@ -1,5 +1,8 @@
 # Condensate: Agent Memory System
 
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-red.svg)](LICENSE)
+[![Commercial: Request License](https://img.shields.io/badge/Commercial-Requires_License-orange.svg)](mailto:support@condensate.io)
+
 > **Standardizing the "Brain" of AI Agents.**
 
 Condensate is an open-source Memory Condensation OS that gives AI agents structured, deterministic, and verifiable long-term memory. It replaces the "bag of text" RAG approach with a rigorous ontology of **Events**, **Learnings**, and **Policies**, enforcing **Traffic Control** (No-LLM paths) and **Cognitive Provenance** (Proof Envelopes).
@@ -180,6 +183,22 @@ Condensate works with any OpenAI-compatible LLM provider and any MCP-compatible 
 - **Agent Frameworks**: LangChain, LlamaIndex, AutoGen, CrewAI
 - **Agent Hosts**: Claude Desktop, Cursor, Windsurf, Codeium
 
-## License
+## License & Commercial Use
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Condensate Core is licensed under the **Business Source License 1.1 (BSL 1.1)**. See [`LICENSE`](LICENSE) for complete terms.
+
+### Non-Commercial & Evaluation Use
+You are free to use, modify, and inspect Condensate Core for personal projects, academic research, evaluation, testing, and non-commercial open-source contributions free of charge, subject to the **Mandatory Attribution Condition**.
+
+### Mandatory Attribution Notice
+Any copy, fork, derivative work, or deployment of Condensate Core must retain and prominently display the following notice in user interfaces, documentation, and CLI/API banners:
+
+> **Powered by Condensate Core (Agent Memory System)**  
+> Copyright (c) 2024–2026 Condensate Systems Pty Ltd
+
+### Commercial Licensing
+**Any use of Condensate Core for commercial purposes** (including but not limited to: internal production engineering pipelines within a business/enterprise, commercial SaaS hosting, fee-charging services, or embedding into proprietary commercial platforms) **is strictly prohibited without a separate Commercial License.**
+
+To acquire a commercial license or discuss enterprise deployments:
+- 📧 **Email:** [support@condensate.io](mailto:support@condensate.io)
+- 🌐 **Website:** [condensate.io](https://condensate.io)

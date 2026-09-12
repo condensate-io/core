@@ -3,7 +3,7 @@
 Official Go client for [Condensate](https://condensate.io) — the open-source Agent Memory System.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/condensate/condensate-go-sdk.svg)](https://pkg.go.dev/github.com/condensate/condensate-go-sdk)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](../../LICENSE)
+[![License](https://img.shields.io/badge/license-BSL%201.1-red)](../../LICENSE)
 
 ## Installation
 

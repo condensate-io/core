@@ -32,8 +32,7 @@ We are committed to providing a friendly, safe and welcoming environment for all
 Please read and adhere to our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## 4. License
-
-This project is dual-licensed:
--   **Specs & RFCs**: Apache 2.0 (Open Spec)
--   **Kernel**: Apache 2.0 (OSS Core)
--   **Enterprise Modules**: Proprietary (Closed Source)
+ 
+ This project is licensed under the **Business Source License 1.1 (BSL 1.1)**:
+ -   **Specs, RFCs & Kernel**: BSL 1.1 (Source-available, free for non-commercial/academic use with mandatory attribution)
+ -   **Commercial & Enterprise Deployments**: Requires a separate commercial license from Condensate Systems Pty Ltd (`support@condensate.io`)
