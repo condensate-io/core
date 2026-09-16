@@ -31,8 +31,10 @@ def test_canonicalizer(mock_db):
     # Verify
     assert "Bob Smith" in mapping
     assert "Alice" in mapping
-    # Should have added 2 entities to DB
-    assert mock_db.add.call_count == 2
+    # New entities are bulk-added in a single add_all call
+    assert mock_db.add_all.call_count == 1
+    added_entities = mock_db.add_all.call_args[0][0]
+    assert len(added_entities) == 2
 
 def test_consolidator(mock_db):
     con = KnowledgeConsolidator(mock_db)

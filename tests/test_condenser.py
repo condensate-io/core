@@ -59,6 +59,8 @@ async def test_condenser_distills_relationships(mock_db):
         
         # Verify DB actions
         added_objects = [call[0][0] for call in mock_db.add.call_args_list]
+        for call in mock_db.add_all.call_args_list:
+            added_objects.extend(call[0][0])
         
         found_entity = any(isinstance(obj, Entity) and "v2.0" in obj.canonical_name for obj in added_objects)
         found_summary = any(isinstance(obj, Assertion) and obj.predicate == "summarized_as" for obj in added_objects)
