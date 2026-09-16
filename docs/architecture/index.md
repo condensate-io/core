@@ -43,6 +43,7 @@ Used for semantic search and deduplication:
 ### Technical Reference
 - [Database Schema](schema.md)
 - [Learning System Architecture](learning_system.md)
+- [Ingestion & Condensation Performance](performance.md)
 - [Astrocyte Memory](astrocyte_memory.md)
 - [MCP Server Specification](../mcp.md)
 - [Edge API Reference](../api.md)

@@ -1,14 +1,16 @@
 import uuid
 import hashlib
 import logging
+import time
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from src.db.models import IngestJob, IngestJobRun, FetchedArtifact
 from src.ingest.connectors.web import WebURLConnector
 from src.ingest.connectors.codebase import CodebaseConnector
-import threading
 from src.engine.job_history import log_job as _log_job
+from src.engine.thread_shard import get_thread_shard
 
 # Registry of available connectors
 CONNECTORS = {
@@ -37,6 +39,28 @@ class IngestService:
         self.db.refresh(job)
         return job
 
+    def _load_existing_hashes(self, job_id: uuid.UUID) -> Dict[str, str]:
+        """
+        Preload the most recent content_hash per source_uri for this job in a
+        single query, so unchanged files can be skipped on repeat ingests
+        without re-condensing them (one query instead of one-per-file).
+        """
+        rows = self.db.execute(
+            select(
+                FetchedArtifact.source_uri,
+                FetchedArtifact.content_hash,
+                FetchedArtifact.created_at,
+            ).where(FetchedArtifact.job_id == job_id)
+        ).all()
+
+        latest: Dict[str, Tuple[str, datetime]] = {}
+        for source_uri, content_hash, created_at in rows:
+            prev = latest.get(source_uri)
+            if prev is None or (created_at and prev[1] and created_at > prev[1]):
+                latest[source_uri] = (content_hash, created_at)
+
+        return {uri: h for uri, (h, _) in latest.items()}
+
     def run_job(self, job_id: uuid.UUID) -> IngestJobRun:
         job = self.db.query(IngestJob).filter(IngestJob.id == job_id).first()
         if not job:
@@ -54,20 +78,51 @@ class IngestService:
         # Log to in-memory job log for UI
         _log_job(str(run.id), f"Ingest: {job.source_type}", "running", run.started_at)
 
+        stage_timings: Dict[str, int] = {}
+
         try:
             connector = CONNECTORS.get(job.source_type)
             if not connector:
                 raise ValueError(f"No connector for type {job.source_type}")
 
+            t0 = time.monotonic()
             items = connector.discover(job.source_config)
-            
-            stats = {"fetched": 0, "bytes": 0}
-            
-            for item_ref in items:
-                for uri, content, meta in connector.fetch(job.source_config, item_ref):
+            stage_timings["discover_ms"] = int((time.monotonic() - t0) * 1000)
+
+            stats = {"fetched": 0, "bytes": 0, "skipped_unchanged": 0}
+
+            existing_hashes = self._load_existing_hashes(job.id)
+
+            # Fetching (reading files/URLs) is I/O-bound, so parallelize it
+            # across the shared adaptive thread pool. DB writes stay on the
+            # calling thread/session, which is not safe to share across
+            # threads.
+            t0 = time.monotonic()
+            shard = get_thread_shard()
+
+            def _fetch_one(ref):
+                return list(connector.fetch(job.source_config, ref))
+
+            fetch_futures = [shard.submit(_fetch_one, item_ref) for item_ref in items]
+
+            for future in fetch_futures:
+                try:
+                    results = future.result()
+                except Exception as e:
+                    logger.warning("Failed to fetch item: %s", e)
+                    continue
+
+                for uri, content, meta in results:
                     # Deduping hash
                     content_hash = hashlib.sha256(content).hexdigest()
-                    
+
+                    # Skip artifacts whose content is unchanged since the
+                    # last run of this job, avoiding redundant storage and
+                    # (much more expensive) re-condensation of identical text.
+                    if existing_hashes.get(uri) == content_hash:
+                        stats["skipped_unchanged"] += 1
+                        continue
+
                     # Store Raw Artifact
                     artifact = FetchedArtifact(
                         run_id=run.id,
@@ -78,39 +133,42 @@ class IngestService:
                         metadata_=meta
                     )
                     self.db.add(artifact)
+                    existing_hashes[uri] = content_hash
                     stats["fetched"] += 1
                     stats["bytes"] += len(content)
 
-
-
+            stage_timings["fetch_ms"] = int((time.monotonic() - t0) * 1000)
 
             run.status = "completed"
             run.ended_at = datetime.utcnow()
             run.stats = stats
             self.db.commit()
-            
-            _log_job(str(run.id), f"Ingest: {job.source_type}", "success", run.started_at, run.ended_at)
-            
+
+            _log_job(
+                str(run.id), f"Ingest: {job.source_type}", "success",
+                run.started_at, run.ended_at,
+                duration_ms=int((run.ended_at - run.started_at).total_seconds() * 1000),
+                stages=stage_timings,
+            )
+
             # Trigger Condensation Pipeline
             try:
-                # Run condensation in a background thread to unblock the ingestion job
-                
-                # We need to capture the necessary IDs and data to pass to the thread
-                # The thread must manage its own DB session
+                # Run condensation on the shared adaptive thread pool (instead
+                # of an unbounded bare threading.Thread per run) to unblock
+                # the ingestion request while still bounding total concurrency.
                 job_id = job.id
                 project_id = job.project_id
                 run_id = run.id
                 source_type = job.source_type
-                
-                thread = threading.Thread(
-                    target=self._run_condensation_task,
-                    args=(job_id, project_id, run_id, source_type)
+
+                get_thread_shard().submit(
+                    self._run_condensation_task,
+                    job_id, project_id, run_id, source_type,
                 )
-                thread.start()
 
             except Exception as e:
                 logger.warning("Failed to trigger condensation: %s", e)
-            
+
             return run
 
         except Exception as e:
@@ -162,7 +220,11 @@ class IngestService:
                         project_id=str(project_id),
                         text=artifact.content,
                         source=source_type,
-                        metadata={"artifact_id": str(artifact.id), "source_uri": artifact.source_uri}
+                        metadata={
+                            "artifact_id": str(artifact.id),
+                            "source_uri": artifact.source_uri,
+                            **(artifact.metadata_ or {}),
+                        },
                     )
                     for artifact in new_artifacts
                 ]

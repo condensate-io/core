@@ -68,3 +68,58 @@ async def test_condenser_distills_relationships(mock_db):
         assert found_entity, "Should have created an Entity for v2.0"
         assert found_summary, "Should have created a summary Assertion"
         mock_db.commit.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_condenser_skips_ner_for_code_artifacts(mock_db):
+    """Codebase items should bypass GLiNER NER and use the code-aware
+    DeterministicCondenser fast path instead (perf: no model inference)."""
+    with patch("src.engine.condenser.get_ner_engine") as mock_get_ner, \
+         patch("src.engine.condenser.get_thread_shard") as mock_get_shard:
+
+        mock_ner_instance = MagicMock()
+        mock_ner_instance.extract_entities.return_value = []
+        mock_get_ner.return_value = mock_ner_instance
+
+        mock_shard_instance = MagicMock()
+
+        def mock_submit(fn, *args, **kwargs):
+            from concurrent.futures import Future
+            f = Future()
+            f.set_result(fn(*args, **kwargs))
+            return f
+
+        mock_shard_instance.submit.side_effect = mock_submit
+        mock_get_shard.return_value = mock_shard_instance
+
+        condenser = Condenser(mock_db)
+
+        mock_db.execute.return_value.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value.scalars.return_value.first.return_value = None
+
+        project_id = uuid4()
+        items = [
+            EpisodicItem(
+                id=uuid4(),
+                text="import os\n\nclass Widget:\n    def run(self):\n        pass\n",
+                source="codebase",
+                metadata_={"source": "codebase", "extension": ".py"},
+            )
+        ]
+
+        with patch.dict(os.environ, {"LLM_ENABLED": "false"}):
+            await condenser.distill(project_id, items)
+
+        # NER should never be invoked for a batch made entirely of code items.
+        mock_ner_instance.extract_entities.assert_not_called()
+
+        added_objects = [call[0][0] for call in mock_db.add.call_args_list]
+        for call in mock_db.add_all.call_args_list:
+            added_objects.extend(call[0][0])
+
+        found_symbol = any(
+            isinstance(obj, Entity) and obj.canonical_name == "Widget"
+            for obj in added_objects
+        )
+        assert found_symbol, "Should have created an Entity for the Widget class"

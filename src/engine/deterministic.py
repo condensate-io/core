@@ -14,12 +14,59 @@ def _stop_words() -> frozenset:
     return get_stop_words()
 
 
+# --- Code-aware extraction patterns -----------------------------------------
+# Used when `code_mode=True` (source-code artifacts). Regex/AST-style symbol
+# extraction is both cheaper and more accurate than a generic prose NER model
+# for imports, definitions, and config keys, so code files skip GLiNER
+# entirely and rely on this fast path (see src/engine/condenser.py).
+_IMPORT_RE = re.compile(
+    r'^\s*(?:from\s+([\w][\w\.]*)\s+import|import\s+([\w][\w\.]*))',
+    re.MULTILINE,
+)
+_DEF_CLASS_RE = re.compile(r'^\s*(?:async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)', re.MULTILINE)
+_JS_FUNC_RE = re.compile(
+    r'^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)',
+    re.MULTILINE,
+)
+_CONFIG_KEY_RE = re.compile(r'^\s*([A-Z][A-Z0-9_]{2,})\s*[:=]', re.MULTILINE)
+
+
+def _extract_code_symbols(text: str) -> Dict[str, str]:
+    """Regex-based extraction of imports, function/class defs, and config
+    keys from source code text. No LLM / NER model involved."""
+    symbols: Dict[str, str] = {}
+
+    for m in _IMPORT_RE.finditer(text):
+        module = m.group(1) or m.group(2)
+        if module:
+            symbols[module] = "module"
+
+    for m in _DEF_CLASS_RE.finditer(text):
+        symbols[m.group(1)] = "symbol"
+
+    for m in _JS_FUNC_RE.finditer(text):
+        symbols[m.group(1)] = "symbol"
+
+    for m in _CONFIG_KEY_RE.finditer(text):
+        key = m.group(1)
+        if key not in ("TRUE", "FALSE", "NONE", "NULL"):
+            symbols[key] = "config"
+
+    return symbols
+
+
 class DeterministicCondenser:
     """
     A deterministic approach to memory condensation (L3-Condenser).
     No LLM magic—just rigorous heuristic extraction.
     """
-    def process(self, text: str, ner_entities: List[ExtractedEntity] = None, ontology_nodes: List[str] = None) -> Dict[str, Any]:
+    def process(
+        self,
+        text: str,
+        ner_entities: List[ExtractedEntity] = None,
+        ontology_nodes: List[str] = None,
+        code_mode: bool = False,
+    ) -> Dict[str, Any]:
         start_time = time.time() * 1000
         trace = []
         
@@ -33,6 +80,45 @@ class DeterministicCondenser:
         if ner_entities:
             for e in ner_entities:
                 entities_dict[e.name] = e.type
+
+        if code_mode:
+            # Source-code fast path: imports/defs/config keys extracted via
+            # regex are cheaper and more precise than running a prose NER
+            # model (GLiNER) over code text, so we skip the generic entity
+            # regexes below entirely for code artifacts.
+            entities_dict.update(_extract_code_symbols(text))
+
+            trace.append({
+                "label": f"Resolved {len(entities_dict)} code symbols (imports/defs/config)",
+                "timestamp": int(time.time() * 1000),
+                "status": "success",
+            })
+
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            condensed = (
+                f"Code artifact with {len(entities_dict)} symbols across {len(lines)} lines."
+                if entities_dict
+                else "No notable code symbols detected."
+            )
+
+            extracted_entities = [
+                ExtractedEntity(name=name, type=etype, confidence=0.75)
+                for name, etype in entities_dict.items()
+            ]
+
+            trace.append({
+                "label": "Knowledge synthesis complete (code fast path).",
+                "timestamp": int(time.time() * 1000),
+                "status": "success",
+            })
+
+            return {
+                "condensed": condensed,
+                "entities": extracted_entities,
+                "facts": [],
+                "trace": trace,
+                "layer": "Condensed Memory (Heuristic L3 - Code)",
+            }
 
         # Regex Patterns for additional items
         version_regex = re.compile(r'v\d+\.\d+(?:\.\d+)?', re.IGNORECASE)

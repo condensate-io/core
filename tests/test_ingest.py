@@ -1,4 +1,5 @@
 import pytest
+import time
 import uuid
 from unittest.mock import MagicMock, patch
 from src.ingest.service import IngestService
@@ -32,6 +33,8 @@ def test_run_job_success(mock_db):
     )
     # Configure mock query to return job
     mock_db.query.return_value.filter.return_value.first.return_value = job
+    # No previously-fetched artifacts for dedup lookup
+    mock_db.execute.return_value.all.return_value = []
     
     # Mock Connector
     with patch("src.ingest.service.CONNECTORS") as mock_connectors:
@@ -46,10 +49,16 @@ def test_run_job_success(mock_db):
             ("http://example.com", b"Hello World", {"status": 200})
         ]
 
-        with patch("src.ingest.service.threading.Thread") as mock_thread:
+        with patch.object(service, "_run_condensation_task") as mock_condense:
             run = service.run_job(job.id)
-            mock_thread.return_value.start.assert_called_once()
+
+            # Condensation is dispatched on the shared background thread
+            # pool; poll briefly for the fire-and-forget submit to land.
+            deadline = time.monotonic() + 2.0
+            while not mock_condense.called and time.monotonic() < deadline:
+                time.sleep(0.01)
+            mock_condense.assert_called_once()
 
         assert run.status == "completed"
         # 1 run + 1 artifact added
-        assert mock_db.add.call_count >= 2 
+        assert mock_db.add.call_count >= 2

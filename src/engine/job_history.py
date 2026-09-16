@@ -12,7 +12,8 @@ _JOB_LOG_LOCK = threading.Lock()
 
 def log_job(job_id: str, job_name: str, status: str,
             started_at: datetime, finished_at: datetime | None = None,
-            duration_ms: int | None = None, error: str | None = None) -> None:
+            duration_ms: int | None = None, error: str | None = None,
+            stages: Dict[str, int] | None = None) -> None:
     entry = {
         "job_id": job_id,
         "job_name": job_name,
@@ -21,6 +22,7 @@ def log_job(job_id: str, job_name: str, status: str,
         "finished_at": finished_at.isoformat() if finished_at else None,
         "duration_ms": duration_ms,
         "error": error,
+        "stages": stages,          # optional {stage_name: duration_ms} breakdown
     }
     with _JOB_LOG_LOCK:
         # Replace an existing "running" entry for the same job if present
