@@ -1,10 +1,22 @@
 import uuid
 from datetime import datetime
-from typing import List, Optional, Dict, Any
-from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, Text, SmallInteger, Boolean
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB as PGL_JSONB
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.types import TypeDecorator, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB as PGL_JSONB
+from sqlalchemy.types import JSON, TypeDecorator
 
 # For SQLite compatibility in tests
 class JSONB(TypeDecorator):
@@ -189,6 +201,15 @@ class Relation(Base):
     Graph edges between entities and/or ontology nodes.
     """
     __tablename__ = "relations"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "from_id",
+            "to_id",
+            "relation_type",
+            name="uq_relations_project_from_to_type",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)

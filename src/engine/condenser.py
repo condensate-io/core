@@ -38,8 +38,6 @@ def _is_code_item(item: EpisodicItem) -> bool:
     """Best-effort detection of whether an episodic item is source code
     (as opposed to prose/chat/documentation), based on ingest metadata."""
     meta = item.metadata_ or {}
-    if meta.get("source") == "codebase":
-        return True
     ext = meta.get("extension")
     return isinstance(ext, str) and ext.lower() in CODE_EXTENSIONS
 

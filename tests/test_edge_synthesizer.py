@@ -1,8 +1,12 @@
-import pytest
 import uuid
 from unittest.mock import MagicMock
-from src.engine.edge_synthesizer import EdgeSynthesizer
+
+import pytest
+from sqlalchemy.dialects import postgresql
+
 from src.db.models import Relation
+from src.engine.edge_synthesizer import EdgeSynthesizer
+
 
 @pytest.fixture
 def mock_db():
@@ -88,3 +92,19 @@ def test_synthesize_caps_entities_per_batch(mock_db, monkeypatch):
 
     # With a cap of 3 entities: 3 pairs * 2 directions = 6 edges
     assert count == 6
+
+
+def test_synthesize_uses_postgres_upsert_for_new_relations(mock_db):
+    mock_db.bind.dialect.name = "postgresql"
+    mock_db.execute.return_value.scalars.return_value.all.return_value = []
+
+    synth = EdgeSynthesizer(mock_db)
+    count = synth.synthesize(uuid.uuid4(), [uuid.uuid4(), uuid.uuid4()], {"batch_ts": "x"})
+
+    assert count == 2
+    assert mock_db.add_all.call_count == 0
+    assert mock_db.execute.call_count == 2
+
+    upsert_stmt = mock_db.execute.call_args_list[1][0][0]
+    compiled = str(upsert_stmt.compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT" in compiled

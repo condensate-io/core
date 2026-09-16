@@ -1,16 +1,19 @@
-import uuid
 import hashlib
 import logging
 import time
+import uuid
+from concurrent.futures import FIRST_COMPLETED, wait
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-from sqlalchemy import select
+from typing import Dict, List
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from src.db.models import IngestJob, IngestJobRun, FetchedArtifact
-from src.ingest.connectors.web import WebURLConnector
-from src.ingest.connectors.codebase import CodebaseConnector
+
+from src.db.models import FetchedArtifact, IngestJob, IngestJobRun
 from src.engine.job_history import log_job as _log_job
 from src.engine.thread_shard import get_thread_shard
+from src.ingest.connectors.codebase import CodebaseConnector
+from src.ingest.connectors.web import WebURLConnector
 
 # Registry of available connectors
 CONNECTORS = {
@@ -41,25 +44,33 @@ class IngestService:
 
     def _load_existing_hashes(self, job_id: uuid.UUID) -> Dict[str, str]:
         """
-        Preload the most recent content_hash per source_uri for this job in a
-        single query, so unchanged files can be skipped on repeat ingests
-        without re-condensing them (one query instead of one-per-file).
+        Preload the most recent content_hash per source_uri for this job with a
+        database-side latest-per-URI query, so unchanged files can be skipped
+        on repeat ingests without loading every historical artifact row.
         """
-        rows = self.db.execute(
+        latest_artifacts = (
             select(
-                FetchedArtifact.source_uri,
-                FetchedArtifact.content_hash,
-                FetchedArtifact.created_at,
-            ).where(FetchedArtifact.job_id == job_id)
+                FetchedArtifact.source_uri.label("source_uri"),
+                FetchedArtifact.content_hash.label("content_hash"),
+                func.row_number()
+                .over(
+                    partition_by=FetchedArtifact.source_uri,
+                    order_by=(
+                        FetchedArtifact.created_at.desc(),
+                        FetchedArtifact.id.desc(),
+                    ),
+                )
+                .label("row_num"),
+            )
+            .where(FetchedArtifact.job_id == job_id)
+            .subquery()
+        )
+        rows = self.db.execute(
+            select(latest_artifacts.c.source_uri, latest_artifacts.c.content_hash).where(
+                latest_artifacts.c.row_num == 1
+            )
         ).all()
-
-        latest: Dict[str, Tuple[str, datetime]] = {}
-        for source_uri, content_hash, created_at in rows:
-            prev = latest.get(source_uri)
-            if prev is None or (created_at and prev[1] and created_at > prev[1]):
-                latest[source_uri] = (content_hash, created_at)
-
-        return {uri: h for uri, (h, _) in latest.items()}
+        return {source_uri: content_hash for source_uri, content_hash in rows}
 
     def run_job(self, job_id: uuid.UUID) -> IngestJobRun:
         job = self.db.query(IngestJob).filter(IngestJob.id == job_id).first()
@@ -89,7 +100,7 @@ class IngestService:
             items = connector.discover(job.source_config)
             stage_timings["discover_ms"] = int((time.monotonic() - t0) * 1000)
 
-            stats = {"fetched": 0, "bytes": 0, "skipped_unchanged": 0}
+            stats = {"fetched": 0, "bytes": 0, "skipped_unchanged": 0, "fetch_failures": 0}
 
             existing_hashes = self._load_existing_hashes(job.id)
 
@@ -103,51 +114,82 @@ class IngestService:
             def _fetch_one(ref):
                 return list(connector.fetch(job.source_config, ref))
 
-            fetch_futures = [shard.submit(_fetch_one, item_ref) for item_ref in items]
+            max_in_flight = max(1, int(getattr(shard, "current_workers", 4) or 4))
+            item_iter = iter(items)
+            fetch_futures = {}
+            fetch_errors: List[str] = []
+            successful_fetches = 0
 
-            for future in fetch_futures:
-                try:
-                    results = future.result()
-                except Exception as e:
-                    logger.warning("Failed to fetch item: %s", e)
-                    continue
+            while True:
+                while len(fetch_futures) < max_in_flight:
+                    try:
+                        item_ref = next(item_iter)
+                    except StopIteration:
+                        break
+                    fetch_futures[shard.submit(_fetch_one, item_ref)] = item_ref
 
-                for uri, content, meta in results:
-                    # Deduping hash
-                    content_hash = hashlib.sha256(content).hexdigest()
+                if not fetch_futures:
+                    break
 
-                    # Skip artifacts whose content is unchanged since the
-                    # last run of this job, avoiding redundant storage and
-                    # (much more expensive) re-condensation of identical text.
-                    if existing_hashes.get(uri) == content_hash:
-                        stats["skipped_unchanged"] += 1
+                done, _ = wait(tuple(fetch_futures.keys()), return_when=FIRST_COMPLETED)
+                for future in done:
+                    item_ref = fetch_futures.pop(future)
+                    try:
+                        results = future.result()
+                        successful_fetches += 1
+                    except Exception as e:
+                        logger.warning("Failed to fetch item %s: %s", item_ref, e)
+                        fetch_errors.append(f"{item_ref}: {e}")
                         continue
 
-                    # Store Raw Artifact
-                    artifact = FetchedArtifact(
-                        run_id=run.id,
-                        job_id=job.id,
-                        source_uri=uri,
-                        content_hash=content_hash,
-                        content=content.decode('utf-8', errors='ignore'), # Assuming text for now
-                        metadata_=meta
-                    )
-                    self.db.add(artifact)
-                    existing_hashes[uri] = content_hash
-                    stats["fetched"] += 1
-                    stats["bytes"] += len(content)
+                    for uri, content, meta in results:
+                        # Deduping hash
+                        content_hash = hashlib.sha256(content).hexdigest()
+
+                        # Skip artifacts whose content is unchanged since the
+                        # last run of this job, avoiding redundant storage and
+                        # (much more expensive) re-condensation of identical text.
+                        if existing_hashes.get(uri) == content_hash:
+                            stats["skipped_unchanged"] += 1
+                            continue
+
+                        # Store Raw Artifact
+                        artifact = FetchedArtifact(
+                            run_id=run.id,
+                            job_id=job.id,
+                            source_uri=uri,
+                            content_hash=content_hash,
+                            content=content.decode("utf-8", errors="ignore"),
+                            metadata_=meta,
+                        )
+                        self.db.add(artifact)
+                        existing_hashes[uri] = content_hash
+                        stats["fetched"] += 1
+                        stats["bytes"] += len(content)
 
             stage_timings["fetch_ms"] = int((time.monotonic() - t0) * 1000)
+            stats["fetch_failures"] = len(fetch_errors)
 
-            run.status = "completed"
+            if fetch_errors:
+                run.error_log = "\n".join(fetch_errors[:20])
+            if fetch_errors and successful_fetches == 0:
+                run.status = "failed"
+            elif fetch_errors:
+                run.status = "partially_failed"
+            else:
+                run.status = "completed"
+
             run.ended_at = datetime.utcnow()
             run.stats = stats
             self.db.commit()
 
             _log_job(
-                str(run.id), f"Ingest: {job.source_type}", "success",
+                str(run.id),
+                f"Ingest: {job.source_type}",
+                "success" if run.status == "completed" else "error",
                 run.started_at, run.ended_at,
                 duration_ms=int((run.ended_at - run.started_at).total_seconds() * 1000),
+                error=run.error_log,
                 stages=stage_timings,
             )
 
@@ -161,10 +203,14 @@ class IngestService:
                 run_id = run.id
                 source_type = job.source_type
 
-                get_thread_shard().submit(
-                    self._run_condensation_task,
-                    job_id, project_id, run_id, source_type,
-                )
+                if stats["fetched"] > 0:
+                    get_thread_shard().submit(
+                        self._run_condensation_task,
+                        job_id,
+                        project_id,
+                        run_id,
+                        source_type,
+                    )
 
             except Exception as e:
                 logger.warning("Failed to trigger condensation: %s", e)
@@ -186,19 +232,21 @@ class IngestService:
         """
         import asyncio
         import os
+
+        from qdrant_client import QdrantClient
+
         from src.agents.ingress import IngressAgent
         from src.db.schemas import EpisodicItemCreate
-        from qdrant_client import QdrantClient
         from src.db.session import SessionLocal
-        
+
         logger.info("Starting background condensation for run %s", run_id)
-        
+
         start_time = datetime.utcnow()
         _log_job(f"condense_{run_id}", f"Condense: {run_id}", "running", start_time)
-        
+
         # New DB Session for this thread
         db = SessionLocal()
-        
+
         try:
             # Fetch all newly created artifacts
             # We must re-query them in this new session
@@ -213,7 +261,7 @@ class IngestService:
                     port=int(os.getenv("QDRANT_PORT", 6333))
                 )
                 ingress = IngressAgent(db, qdrant)
-                
+
                 # Transform all artifacts to EpisodicItemCreate batch
                 items_to_process = [
                     EpisodicItemCreate(
@@ -228,7 +276,7 @@ class IngestService:
                     )
                     for artifact in new_artifacts
                 ]
-                
+
                 if items_to_process:
                     # Process and condense in a single batch call
                     await ingress.process_and_condense_batch(items_to_process)

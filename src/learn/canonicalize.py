@@ -1,9 +1,12 @@
+import uuid
 from typing import Dict, List
+
+from sqlalchemy import cast, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
-from sqlalchemy import select, or_, func
+
 from src.db.models import Entity
 from src.llm.schemas import ExtractedEntity
-import uuid
 
 
 def _normalize(name: str) -> str:
@@ -11,6 +14,10 @@ def _normalize(name: str) -> str:
     if n.startswith("the "):
         n = n[4:]
     return n
+
+
+def _normalize_sql(expr):
+    return func.regexp_replace(func.btrim(func.lower(expr)), r"^the\s+", "")
 
 
 class EntityCanonicalizer:
@@ -31,22 +38,37 @@ class EntityCanonicalizer:
         if not extracted_entities:
             return resolution_map
 
-        names_to_check = [_normalize(e.name) for e in extracted_entities]
-        aliases_to_check = [_normalize(a) for e in extracted_entities for a in e.aliases]
+        raw_names_to_check = [e.name.strip() for e in extracted_entities if e.name and e.name.strip()]
+        raw_aliases_to_check = [
+            alias.strip()
+            for e in extracted_entities
+            for alias in e.aliases
+            if alias and alias.strip()
+        ]
+        names_to_check = [_normalize(name) for name in raw_names_to_check]
+        aliases_to_check = [_normalize(alias) for alias in raw_aliases_to_check]
         all_terms = list({t for t in (names_to_check + aliases_to_check) if t})
+        raw_terms = list({t for t in (raw_names_to_check + raw_aliases_to_check) if t})
 
         existing_entities = []
         if all_terms:
-            # Targeted lookup: case-insensitive match on canonical_name, or a
-            # JSONB "any of these strings present" match on aliases. Both are
-            # index-friendly (functional index on lower(canonical_name), GIN
-            # index on aliases) and bounded by the batch size, not the project size.
+            alias_terms = func.jsonb_array_elements_text(
+                func.coalesce(Entity.aliases, cast("[]", JSONB))
+            ).table_valued("value")
+            predicates = [
+                _normalize_sql(Entity.canonical_name).in_(all_terms),
+                exists(
+                    select(1)
+                    .select_from(alias_terms)
+                    .where(_normalize_sql(alias_terms.c.value).in_(all_terms))
+                ),
+            ]
+            if raw_terms:
+                predicates.append(Entity.aliases.op("?|")(raw_terms))
+
             stmt = select(Entity).where(
                 Entity.project_id == project_id,
-                or_(
-                    func.lower(Entity.canonical_name).in_(all_terms),
-                    Entity.aliases.op("?|")(all_terms),
-                ),
+                or_(*predicates),
             )
             existing_entities = self.db.execute(stmt).scalars().all()
 

@@ -3,8 +3,10 @@ import os
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+
+from sqlalchemy import case, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 
 from src.db.models import Relation
 
@@ -25,9 +27,9 @@ class EdgeSynthesizer:
         For each pair of entities in the batch, upsert a co-occurrence Relation edge.
 
         This performs a single batched SELECT for all relevant existing relations
-        (instead of one SELECT + one write per pair/direction) and bulk-creates
+        (instead of one SELECT + one write per pair/direction) and bulk-upserts
         any missing edges, so the DB round-trip count is O(1) per batch rather
-        than O(n^2).
+        than O(n^2), without racing into duplicate rows under concurrent runs.
 
         Returns count of edges created/updated.
         """
@@ -87,7 +89,7 @@ class EdgeSynthesizer:
                     edges_processed += 1
 
         if new_relations:
-            self.db.add_all(new_relations)
+            self._persist_new_relations(new_relations)
 
         return edges_processed
 
@@ -141,3 +143,65 @@ class EdgeSynthesizer:
             temporal_start=temporal_step,
             temporal_end=temporal_step,
         )
+
+    def _persist_new_relations(self, relations: List[Relation]) -> None:
+        bind = getattr(self.db, "bind", None)
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", None)
+        if dialect_name != "postgresql":
+            self.db.add_all(relations)
+            return
+
+        rows = [self._relation_to_row(relation) for relation in relations]
+        insert_stmt = pg_insert(Relation).values(rows)
+        self.db.execute(
+            insert_stmt.on_conflict_do_update(
+                index_elements=[
+                    Relation.project_id,
+                    Relation.from_id,
+                    Relation.to_id,
+                    Relation.relation_type,
+                ],
+                set_={
+                    "strength": func.least(Relation.strength + 0.1, 5.0),
+                    "access_count": Relation.access_count + 1,
+                    "last_accessed_at": insert_stmt.excluded.last_accessed_at,
+                    "temporal_start": case(
+                        (Relation.temporal_start.is_(None), insert_stmt.excluded.temporal_start),
+                        (insert_stmt.excluded.temporal_start.is_(None), Relation.temporal_start),
+                        else_=func.least(
+                            Relation.temporal_start, insert_stmt.excluded.temporal_start
+                        ),
+                    ),
+                    "temporal_end": case(
+                        (Relation.temporal_end.is_(None), insert_stmt.excluded.temporal_end),
+                        (insert_stmt.excluded.temporal_end.is_(None), Relation.temporal_end),
+                        else_=func.greatest(
+                            Relation.temporal_end, insert_stmt.excluded.temporal_end
+                        ),
+                    ),
+                    "provenance": case(
+                        (Relation.provenance.is_(None), insert_stmt.excluded.provenance),
+                        else_=Relation.provenance.op("||")(insert_stmt.excluded.provenance),
+                    ),
+                },
+            )
+        )
+
+    @staticmethod
+    def _relation_to_row(relation: Relation) -> Dict[str, object]:
+        return {
+            "id": relation.id,
+            "project_id": relation.project_id,
+            "from_id": relation.from_id,
+            "from_kind": relation.from_kind,
+            "relation_type": relation.relation_type,
+            "to_id": relation.to_id,
+            "to_kind": relation.to_kind,
+            "strength": relation.strength,
+            "confidence": relation.confidence,
+            "provenance": relation.provenance,
+            "access_count": relation.access_count,
+            "last_accessed_at": relation.last_accessed_at,
+            "temporal_start": relation.temporal_start,
+            "temporal_end": relation.temporal_end,
+        }
