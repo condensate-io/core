@@ -680,9 +680,6 @@ Output JSON:
 }}
 """
 
-_QUERY_EMBEDDING = None
-
-
 def qdrant_vector_search(
     qdrant,
     *,
@@ -712,24 +709,15 @@ def qdrant_vector_search(
 
 
 def _get_query_embedding():
-    global _QUERY_EMBEDDING
-    if _QUERY_EMBEDDING is not None:
-        return _QUERY_EMBEDDING
-    from fastembed import TextEmbedding
+    """Shared, process-wide embedding model (see src/engine/embedding.py).
 
-    try:
-        import onnxruntime as ort
+    Uses the same singleton instance as ingestion (src/agents/ingress.py) so
+    query-time and ingest-time vectors always come from the same model with
+    matching dimensionality.
+    """
+    from src.engine.embedding import get_embedding_model
 
-        available = ort.get_available_providers()
-        force_cpu = os.getenv("RETRIEVE_EMBED_CPU", "").lower() in ("1", "true", "yes")
-        if force_cpu or "CUDAExecutionProvider" not in available:
-            providers = ["CPUExecutionProvider"]
-        else:
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    except ImportError:
-        providers = ["CPUExecutionProvider"]
-    _QUERY_EMBEDDING = TextEmbedding(model_name="BAAI/bge-small-en-v1.5", providers=providers)
-    return _QUERY_EMBEDDING
+    return get_embedding_model()
 
 
 class MemoryRouter:

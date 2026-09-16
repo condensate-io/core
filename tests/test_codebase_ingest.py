@@ -1,5 +1,6 @@
 import pytest
 import os
+import time
 import uuid
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -101,6 +102,7 @@ def test_service_codebase_ingest_integration(temp_codebase_dir):
     )
 
     mock_db.query.return_value.filter.return_value.first.return_value = job
+    mock_db.execute.return_value.all.return_value = []
 
     # We patch the background thread in the service to avoid spawning async threads in the test
     with patch.object(service, "_run_condensation_task") as mock_condense:
@@ -111,4 +113,10 @@ def test_service_codebase_ingest_integration(temp_codebase_dir):
         
         # Verify db.add is called for the IngestJobRun and the FetchedArtifact rows
         assert mock_db.add.call_count >= 3
+
+        # Condensation is triggered on the shared background thread pool, so
+        # poll briefly instead of asserting immediately after a fire-and-forget submit.
+        deadline = time.monotonic() + 2.0
+        while not mock_condense.called and time.monotonic() < deadline:
+            time.sleep(0.01)
         mock_condense.assert_called_once()

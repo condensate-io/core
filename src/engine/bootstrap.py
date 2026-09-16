@@ -9,6 +9,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from src.db.models import Base, Project, Memory, Learning, OntologyNode, OntologyEdge, ApiKey
+from src.engine.embedding import get_embedding_dimension
 from src.db.session import engine, SessionLocal
 from src.server.security import hash_key
 
@@ -100,9 +101,12 @@ def migrate_memories(db_session):
 
     # Ensure new collection exists
     if not new_client.collection_exists("memories"):
+        embedding_dimension = get_embedding_dimension()
         new_client.create_collection(
             collection_name="memories",
-            vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+            vectors_config=models.VectorParams(
+                size=embedding_dimension, distance=models.Distance.COSINE
+            )
         )
 
     # Scroll old memories

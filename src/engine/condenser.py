@@ -23,6 +23,24 @@ from src.llm.schemas import ExtractedEntity
 
 logger = logging.getLogger(__name__)
 
+# Source file extensions treated as "code" artifacts. For these, structured
+# regex/AST-style symbol extraction (imports, def/class, config keys) is both
+# faster and more precise than running the generic prose GLiNER NER model, so
+# code items skip NER entirely and rely on src.engine.deterministic's
+# code-aware fast path instead.
+CODE_EXTENSIONS = {
+    ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".c", ".cpp",
+    ".h", ".hpp", ".cs", ".rb", ".php", ".sh", ".sql", ".kt", ".swift",
+}
+
+
+def _is_code_item(item: EpisodicItem) -> bool:
+    """Best-effort detection of whether an episodic item is source code
+    (as opposed to prose/chat/documentation), based on ingest metadata."""
+    meta = item.metadata_ or {}
+    ext = meta.get("extension")
+    return isinstance(ext, str) and ext.lower() in CODE_EXTENSIONS
+
 
 def build_proof_envelope(
     payload: Dict[str, Any],
@@ -137,6 +155,12 @@ class Condenser:
             target_labels = list(set(self.ner.DEFAULT_LABELS + ontology_labels))
 
             for item in items:
+                if _is_code_item(item):
+                    # Skip the generic prose NER model for source-code
+                    # artifacts; DeterministicCondenser's code-aware regex
+                    # pass (imports/def/class/config keys) below is both
+                    # cheaper and more accurate for this content.
+                    continue
                 # Offload CPU-bound NER model inference to thread pool
                 future = shard.submit(
                     self.ner.extract_entities, item.text, labels=target_labels
@@ -187,10 +211,12 @@ class Condenser:
             # --- Phase 1: Deterministic L3 (Fast Path) ---
             logger.info("[Condenser] Running Deterministic L3 extraction...")
             dc = DeterministicCondenser()
+            is_code_batch = bool(items) and all(_is_code_item(item) for item in items)
             det_result = dc.process(
                 full_text,
                 ner_entities=all_candidate_entities,
                 ontology_nodes=ontology_labels,
+                code_mode=is_code_batch,
             )
 
             # Seed our fact list with L3 findings

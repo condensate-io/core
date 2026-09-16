@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # Config file cache
     CONFIG_CACHE_TTL_SECONDS: int = 30
 
+    # Embedding / vectorization config (shared by ingest and retrieval so the
+    # same model + dimensionality is always used against Qdrant collections)
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
+    EMBEDDING_FORCE_CPU: bool = False
+
     # LLM config
     LLM_ENABLED: bool = False
     LLM_MODEL: str = "phi3"

@@ -1,7 +1,6 @@
 import uuid
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 from src.db.schemas import EpisodicItemCreate
-from src.db.models import EpisodicItem
 
 
 def test_ingress_creates_memory_with_provenance(db_session, project):
@@ -11,16 +10,16 @@ def test_ingress_creates_memory_with_provenance(db_session, project):
     # IngressAgent will convert it via uuid.uuid5(uuid.NAMESPACE_DNS, "test-project-id")
     expected_project_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, str(project.id))
 
-    # db_session.query(...).filter(...).first() returns a MagicMock (truthy),
-    # so the "project not found" auto-create branch is skipped.
-    # We need .first() to return None so we test the auto-create path,
-    # OR return a real-looking project. Either way project_id is set at item construction.
     mock_project = MagicMock()
     mock_project.id = expected_project_uuid
-    db_session.query.return_value.filter.return_value.first.return_value = mock_project
+    # _ensure_projects() does a single batched lookup: query(...).filter(...).all()
+    db_session.query.return_value.filter.return_value.all.return_value = [mock_project]
+
+    import src.engine.embedding as embedding_module
+    embedding_module.reset_embedding_model()
 
     # Patch TextEmbedding so no model download occurs
-    with patch("src.agents.ingress.TextEmbedding") as MockEmbedding:
+    with patch("src.engine.embedding.TextEmbedding") as MockEmbedding:
         # Make embed() return a fake vector
         mock_vector = MagicMock()
         mock_vector.tolist.return_value = [0.1] * 384
@@ -40,6 +39,8 @@ def test_ingress_creates_memory_with_provenance(db_session, project):
 
         memory = agent.process_memory(data)
 
+    embedding_module.reset_embedding_model()
+
     # Assertions
     assert memory is not None
     assert not isinstance(memory, MagicMock), \
@@ -49,8 +50,8 @@ def test_ingress_creates_memory_with_provenance(db_session, project):
         f"Expected project_id {expected_project_uuid}, got {memory.project_id}"
     assert memory.text == "This is a test memory."
 
-    # Verify DB persistence calls
-    db_session.add.assert_called()
+    # Verify DB persistence calls (batched insert path uses add_all)
+    db_session.add_all.assert_called()
     db_session.commit.assert_called()
 
     # Verify Qdrant upsert was attempted
